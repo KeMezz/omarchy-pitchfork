@@ -1,0 +1,6 @@
+.cache/
+*.qmlc
+*.jsc
+
+# Local agent entry point. Omarchy plugin packages may not contain symlinks.
+CLAUDE.md

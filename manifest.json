@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "dev.hyeongjin.tuner",
+  "name": "Tuner",
+  "version": "0.1.0",
+  "author": "Hyeongjin",
+  "license": "MIT",
+  "description": "An instrument tuner for guitar and bass, reading pitch from a PipeWire input.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Tuner",
+    "description": "Tune a guitar or bass from the Omarchy bar.",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
