@@ -166,6 +166,10 @@ class Detector:
             return reading
 
         coarse_lag, aperiodicity = self._coarse_lag(centred)
+        # Reported even when the frame is rejected: how far over the limit a
+        # near miss was is the one number that explains a tuner showing
+        # nothing while the level meter is clearly moving.
+        reading["aperiodicity"] = round(aperiodicity, 3)
         if aperiodicity > REJECT_ABOVE:
             return reading
 
@@ -230,10 +234,22 @@ def read_exact(stream, count: int) -> bytes | None:
     return b"".join(chunks)
 
 
-def run_stream(stream, detector: Detector, window: int = WINDOW, hop: int = HOP) -> int:
+NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def note_of(hz: float) -> tuple[str, float]:
+    """Nearest note name and the deviation from it in cents."""
+    midi = 69 + 12 * math.log(hz / 440.0, 2)
+    nearest = round(midi)
+    name = NOTE_NAMES[nearest % 12] + str(nearest // 12 - 1)
+    return name, (midi - nearest) * 100.0
+
+
+def run_stream(stream, detector: Detector, window: int = WINDOW, hop: int = HOP, sink=None) -> int:
     frame = array.array('d', [0.0] * window)
     samples = array.array('h')
     smoother = Smoother()
+    write = sink if sink is not None else emit
     primed = False
     while True:
         block = read_exact(stream, hop * 2)
@@ -245,7 +261,7 @@ def run_stream(stream, detector: Detector, window: int = WINDOW, hop: int = HOP)
         frame = frame[hop:]
         frame.extend(array.array('d', samples))
         primed = True
-        emit(smoother.push(detector.analyze(frame)))
+        write(smoother.push(detector.analyze(frame)))
 
 
 def die_with_parent() -> None:
@@ -273,6 +289,66 @@ def capture(target: str, rate: int) -> subprocess.Popen:
     if target:
         command += ["--target", target]
     return subprocess.Popen(command, stdout=subprocess.PIPE, preexec_fn=die_with_parent)
+
+
+def print_meter(reading: dict) -> None:
+    level = reading["level"]
+    filled = int(min(1.0, math.sqrt(level * 4)) * 28)
+    bar = "#" * filled + " " * (28 - filled)
+    if reading["hz"] > 0:
+        name, offset = note_of(reading["hz"])
+        pitch = f"{name:<4} {offset:+6.1f}c  {reading['hz']:8.2f} Hz"
+    else:
+        pitch = f"{'--':<4} {'':>7}   {'':>8}   "
+    # Aperiodicity is what the rejection threshold actually tests, so show it:
+    # a note that will not register is usually a number just over the limit.
+    if "aperiodicity" in reading:
+        judgement = f"aper {reading['aperiodicity']:.2f}"
+        if reading["hz"] <= 0:
+            judgement += f" > {REJECT_ABOVE:.2f}, rejected"
+    else:
+        judgement = "below the level gate"
+    sys.stdout.write(f"\r  [{bar}] {level:.4f}   {pitch}   {judgement:<28}")
+    sys.stdout.flush()
+
+
+def run_meter(target: str, rate: int, gate: float) -> int:
+    print(f"Listening on: {target or 'the PipeWire default source'}")
+    print("Play a note. Ctrl-C to stop.\n")
+    try:
+        recorder = capture(target, rate)
+    except FileNotFoundError:
+        print("pw-cat not found; install pipewire-audio", file=sys.stderr)
+        return 1
+    try:
+        return run_stream(recorder.stdout, Detector(rate=rate, gate=gate), sink=print_meter)
+    finally:
+        print()
+        if recorder.poll() is None:
+            recorder.terminate()
+
+
+def list_inputs() -> int:
+    import shutil
+    if shutil.which("pactl") is None:
+        print("pactl not found; it ships with pipewire-pulse", file=sys.stderr)
+        return 1
+    listing = subprocess.run(["pactl", "list", "short", "sources"],
+                             capture_output=True, text=True)
+    default = subprocess.run(["pactl", "get-default-source"],
+                             capture_output=True, text=True).stdout.strip()
+    print("Pass one of these to --target, or make it the system default with")
+    print("  pactl set-default-source <name>\n")
+    for line in listing.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 2:
+            continue
+        name = fields[1]
+        # A .monitor source records what a sink is playing, not an instrument.
+        kind = "monitor" if name.endswith(".monitor") else "input"
+        marker = "  <- current default" if name == default else ""
+        print(f"  [{kind}] {name}{marker}")
+    return 0
 
 
 def run_capture(target: str, rate: int, gate: float) -> int:
@@ -411,6 +487,10 @@ def main() -> int:
                         help="read raw s16 mono PCM from stdin instead of pw-cat")
     parser.add_argument("--selftest", action="store_true",
                         help="check the detector against synthetic tones and exit")
+    parser.add_argument("--meter", action="store_true",
+                        help="show a live level and pitch readout in the terminal")
+    parser.add_argument("--list-inputs", action="store_true",
+                        help="list PipeWire sources that --target accepts")
     args = parser.parse_args()
 
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
@@ -418,6 +498,10 @@ def main() -> int:
 
     if args.selftest:
         return selftest()
+    if args.list_inputs:
+        return list_inputs()
+    if args.meter:
+        return run_meter(args.target, args.rate, args.gate)
     if args.stdin:
         return run_stream(sys.stdin.buffer, Detector(rate=args.rate, gate=args.gate))
     return run_capture(args.target, args.rate, args.gate)

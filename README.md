@@ -36,9 +36,23 @@ The detector runs standalone, which is the fastest way to work on it:
 
 ```
 scripts/pitch-detect.py --selftest        # synthetic tones, no audio device
+scripts/pitch-detect.py --meter           # live level and pitch in the terminal
+scripts/pitch-detect.py --list-inputs     # PipeWire sources --target accepts
 scripts/pitch-detect.py --stdin < raw.pcm # raw s16 mono PCM, pw-cat bypassed
 scripts/pitch-detect.py --target <node>   # a specific PipeWire source
 ```
+
+`--meter` is the first thing to reach for when the panel shows no note. It
+separates the two failures that look identical from the panel:
+
+```
+  [###############   ] 0.0724   --                aper 0.49 > 0.20, rejected
+  [################  ] 0.2265   E2  +0.1c  82.41 Hz   aper 0.01
+```
+
+A moving level bar means capture works. Aperiodicity is what the rejection
+threshold actually tests, so a note that will not register shows up as a number
+over the limit rather than as silence.
 
 `Makefile` and `scripts/*.sh` are a copy of the shared playground toolchain
 rather than a shared dependency, so a fix in one repository has to be ported to
@@ -75,6 +89,7 @@ detector and the panel independently replaceable.
 | `level`      | Input RMS as a fraction of full scale. Drives the level meter.  |
 | `source`     | Detector identity.                                             |
 | `error`      | Optional human-readable problem. `hz` is `0.0` alongside it.    |
+| `aperiodicity` | Diagnostic. The value the rejection threshold tested. Absent when the frame never reached detection. |
 
 A reading is emitted per hop, so about 15 per second. stderr is diagnostic only
 and is not part of the protocol.
@@ -162,6 +177,21 @@ rather than a convenience:
   review queue. None of them are used.
 - No network access.
 - No privileged actions.
+
+### Choosing an input
+
+There is no picker in the panel yet, so the detector captures from the PipeWire
+default source. On a laptop that is usually the internal microphone array,
+which is a poor tuner input: its broadband noise floor sits high enough that a
+quietly played instrument never becomes the most periodic thing in the window.
+An unplugged electric instrument is not audible to it at all — that needs an
+audio interface, and no software setting substitutes for one.
+
+```
+scripts/pitch-detect.py --list-inputs                   # see what exists
+pactl set-source-volume @DEFAULT_SOURCE@ 100%           # the array is often low
+pactl set-default-source <node>                         # point the panel at it
+```
 
 ### Microphone access
 
