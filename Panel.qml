@@ -14,6 +14,7 @@ Panel {
     // only writer; the UI never guesses a value the detector did not send.
     property real detectedHz: 0
     property real confidence: 0
+    property real level: 0
     property string detectorSource: ""
     property string detectorError: ""
     property var anchorItem: null
@@ -24,6 +25,16 @@ Panel {
     readonly property string noteLabel: root.detectedHz > 0 ? root.noteNames[((root.nearestMidi % 12) + 12) % 12] + (Math.floor(root.nearestMidi / 12) - 1) : "--"
     // 5 cents is the band where a guitar or bass reads as in tune by ear.
     readonly property bool inTune: root.detectedHz > 0 && Math.abs(root.cents) <= 5
+    readonly property bool hasSignal: root.level >= 0.004
+    readonly property string statusText: {
+        if (root.detectorError.length > 0)
+            return root.detectorError;
+
+        if (root.detectedHz > 0)
+            return "";
+
+        return root.hasSignal ? "Listening for a steady pitch." : "No signal. Play a note.";
+    }
     readonly property string barReadout: root.detectedHz > 0 ? root.noteLabel : "Tuner"
     // Process wants a filesystem path, not the file:// URL resolvedUrl returns.
     readonly property string detectorPath: Qt.resolvedUrl("scripts/pitch-detect.py").toString().replace(/^file:\/\//, "")
@@ -59,6 +70,7 @@ Panel {
             var reading = JSON.parse(text);
             root.detectedHz = Number(reading.hz) || 0;
             root.confidence = Number(reading.confidence) || 0;
+            root.level = Number(reading.level) || 0;
             root.detectorSource = String(reading.source || "");
             root.detectorError = String(reading.error || "");
         } catch (parseError) {
@@ -69,6 +81,7 @@ Panel {
     function clearReading() {
         root.detectedHz = 0;
         root.confidence = 0;
+        root.level = 0;
         root.detectorSource = "";
         root.detectorError = "";
     }
@@ -186,12 +199,41 @@ Panel {
                     wrapMode: Text.WordWrap
                 }
 
+                // Input level. Without it, a silent panel is ambiguous: no
+                // cable, wrong input, or just nothing being played.
+                Rectangle {
+                    width: parent.width
+                    height: Style.space(4)
+                    radius: height / 2
+                    color: Util.alpha(root.barForeground, 0.08)
+
+                    Rectangle {
+                        height: parent.height
+                        radius: parent.radius
+                        // Level is linear RMS, which crowds an instrument
+                        // signal into the bottom of the bar. A square root
+                        // spreads the useful range out.
+                        width: parent.width * Math.min(1, Math.sqrt(root.level * 4))
+                        color: root.hasSignal ? Util.alpha(root.barForeground, 0.55) : Util.alpha(root.barForeground, 0.2)
+
+                        Behavior on width {
+                            NumberAnimation {
+                                duration: 60
+                            }
+
+                        }
+
+                    }
+
+                }
+
                 Text {
                     width: parent.width
-                    visible: root.detectorError.length > 0 || root.detectorSource === "stub"
-                    text: root.detectorError.length > 0 ? root.detectorError : "Synthetic readings. Audio capture is not wired up yet."
-                    color: root.barForeground
-                    opacity: 0.7
+                    visible: root.statusText.length > 0
+                    horizontalAlignment: Text.AlignHCenter
+                    text: root.statusText
+                    color: root.detectorError.length > 0 ? Color.urgent : root.barForeground
+                    opacity: root.detectorError.length > 0 ? 1 : 0.7
                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                     font.pixelSize: Style.font.caption
                     wrapMode: Text.WordWrap
