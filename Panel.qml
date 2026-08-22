@@ -17,6 +17,7 @@ Panel {
     property real level: 0
     property string detectorSource: ""
     property string detectorError: ""
+    property bool detectorStopped: false
     property var anchorItem: null
     property var hostWidget: null
     readonly property real midiNote: root.detectedHz > 0 ? 69 + 12 * Math.log(root.detectedHz / 440) / Math.LN2 : 0
@@ -29,6 +30,11 @@ Panel {
     readonly property string statusText: {
         if (root.detectorError.length > 0)
             return root.detectorError;
+
+        // A detector that exited stays exited while the panel is open, so say
+        // so rather than showing a silence that looks like a quiet room.
+        if (root.detectorStopped)
+            return "Detector stopped. Close and reopen to retry.";
 
         if (root.detectedHz > 0)
             return "";
@@ -73,21 +79,33 @@ Panel {
             root.level = Number(reading.level) || 0;
             root.detectorSource = String(reading.source || "");
             root.detectorError = String(reading.error || "");
+            root.detectorStopped = false;
         } catch (parseError) {
             root.detectorError = "unreadable detector output";
         }
     }
 
-    function clearReading() {
+    function clearSignal() {
         root.detectedHz = 0;
         root.confidence = 0;
         root.level = 0;
+    }
+
+    function resetDetector() {
+        root.clearSignal();
         root.detectorSource = "";
         root.detectorError = "";
+        root.detectorStopped = false;
     }
 
     moduleName: "dev.hyeongjin.tuner"
     manageIpc: false
+    // Opening the panel is the retry: it restarts the detector, so a stale
+    // error from the previous run must not survive into the new one.
+    onOpenedChanged: {
+        if (root.opened)
+            root.resetDetector();
+    }
 
     // The detector only runs while the panel is open. A tuner that keeps a
     // capture stream alive in the background is a microphone nobody asked for.
@@ -96,7 +114,13 @@ Panel {
 
         running: root.opened
         command: ["python3", root.detectorPath]
-        onExited: root.clearReading()
+        // Keep whatever error the detector reported on its way out; it exits
+        // immediately after emitting one, and it is the only diagnostic the
+        // panel can show.
+        onExited: {
+            root.clearSignal();
+            root.detectorStopped = true;
+        }
 
         stdout: SplitParser {
             onRead: function(line) {

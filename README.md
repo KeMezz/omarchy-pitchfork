@@ -10,8 +10,15 @@ Plugin id: `dev.hyeongjin.tuner`
 Working. Audio capture and pitch detection are implemented; the panel shows the
 note, the cents offset, the frequency, and the input level.
 
-Not done yet: there is no input picker in the panel, so capture follows the
-system default source. Use `--target` (see below) until there is one.
+Not done yet: there is no input picker in the panel. The panel launches the
+detector with no arguments, so it captures from the system default source. The
+`--target` flag below only applies to standalone runs; the panel's only lever is
+the `TUNER_TARGET` environment variable, which has to be set in the environment
+the Omarchy shell itself was started in.
+
+Note that `pw-cat` does not fail on an unknown `--target`: it falls back to the
+default source silently, so a typo in a node name looks like a working tuner
+listening to the wrong input.
 
 ## Development
 
@@ -125,6 +132,11 @@ attached, which is exactly the thing this plugin must never leave behind.
 Three mechanisms cover the three ways it can end: an orderly exit calls
 `terminate()`, a `SIGKILL` is caught by `PR_SET_PDEATHSIG`, and anything else
 leaves `pw-cat` writing to a closed pipe.
+
+A detector that exits is not restarted while the panel stays open — Quickshell
+only re-evaluates `Process.running` when `opened` changes — so the panel keeps
+the error the detector reported on its way out and tells the reader that
+reopening is the retry.
 
 ## Dependencies
 
