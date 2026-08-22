@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
 
@@ -41,9 +42,71 @@ Panel {
 
         return root.hasSignal ? "Listening for a steady pitch." : "No signal. Play a note.";
     }
-    readonly property string barReadout: root.detectedHz > 0 ? root.noteLabel : "Tuner"
+    // Empty when there is nothing to report, so the bar widget can decide what
+    // an idle tuner says rather than being handed a label.
+    readonly property string barReadout: root.detectedHz > 0 ? root.noteLabel + " " + (root.cents > 0 ? "+" : "") + root.cents + "\u00a2" : ""
     // Process wants a filesystem path, not the file:// URL resolvedUrl returns.
     readonly property string detectorPath: Qt.resolvedUrl("scripts/pitch-detect.py").toString().replace(/^file:\/\//, "")
+
+    // -- input selection ----------------------------------------------------
+
+    // Empty means the PipeWire default source, which is what the detector does
+    // with no --target.
+    property string selectedTarget: ""
+    property bool detectorArmed: true
+    readonly property string statePath: Quickshell.env("HOME") + "/.config/omarchy-tuner/input.json"
+    readonly property var nodes: Pipewire.nodes ? Pipewire.nodes.values : []
+    // Deliberately never reads node.properties. That is invalid until a node
+    // is bound, and the audio panel documents that reading it while capture
+    // streams appear can destabilise Quickshell's Pipewire service -- and this
+    // plugin creates a capture stream every time the panel opens.
+    readonly property var captureSources: {
+        var found = [];
+        for (var index = 0; index < root.nodes.length; index++) {
+            var node = root.nodes[index];
+            if (!node || node.isSink || node.isStream)
+                continue;
+
+            if (!node.audio && String(node.type || "").indexOf("Source") === -1)
+                continue;
+
+            if (String(node.name || "") === "quickshell")
+                continue;
+
+            found.push(node);
+        }
+        return found;
+    }
+    readonly property bool selectionAvailable: {
+        if (root.selectedTarget.length === 0)
+            return true;
+
+        for (var index = 0; index < root.captureSources.length; index++) {
+            if (String(root.captureSources[index].name || "") === root.selectedTarget)
+                return true;
+
+        }
+        return false;
+    }
+    readonly property var detectorCommand: root.selectedTarget.length > 0
+        ? ["python3", root.detectorPath, "--target", root.selectedTarget]
+        : ["python3", root.detectorPath]
+    // The default entry is first and always present, so there is a way back
+    // from a device that has been unplugged.
+    readonly property var inputOptions: {
+        var options = [{
+            "name": "",
+            "label": "System default"
+        }];
+        for (var index = 0; index < root.captureSources.length; index++) {
+            var node = root.captureSources[index];
+            options.push({
+                "name": String(node.name || ""),
+                "label": root.sourceLabel(node)
+            });
+        }
+        return options;
+    }
 
     function open() {
         root.controller.show();
@@ -85,6 +148,67 @@ Panel {
         }
     }
 
+    // ALSA descriptions front-load the controller and leave the part that
+    // actually distinguishes two inputs -- "Digital Microphone" versus
+    // "Stereo Microphone" -- at the very end, where a narrow panel elides it.
+    function friendlyLabel(raw) {
+        var label = String(raw || "").trim();
+        var tail = label.replace(/^.*\)\s*/, "");
+        if (tail.length > 0)
+            label = tail;
+
+        return label.replace(/^Built-?in Audio\s+/i, "");
+    }
+
+    function sourceLabel(node) {
+        if (!node)
+            return "Unknown";
+
+        var label = root.friendlyLabel(node.nickname || node.description || node.name || "Unknown");
+        // A monitor records what a sink is playing. Legitimate to tune from,
+        // but not what someone reaching for "my microphone" means.
+        if (String(node.name || "").indexOf(".monitor") !== -1)
+            label += " (monitor)";
+
+        return label;
+    }
+
+    function selectTarget(name) {
+        var next = String(name || "");
+        if (next === root.selectedTarget)
+            return ;
+
+        root.selectedTarget = next;
+        root.persistSelection();
+        root.restartDetector();
+    }
+
+    // Dropping running and raising it again in one block coalesces into no
+    // change, and Quickshell does not restart a Process that exited while
+    // running still evaluates true. So disarm now and re-arm on a later tick.
+    function restartDetector() {
+        root.clearSignal();
+        root.detectorError = "";
+        root.detectorStopped = false;
+        root.detectorArmed = false;
+        rearm.restart();
+    }
+
+    function persistSelection() {
+        stateFile.setText(JSON.stringify({
+            "target": root.selectedTarget
+        }, null, 2) + "\n");
+    }
+
+    function loadSelection(raw) {
+        try {
+            var stored = JSON.parse(String(raw || "{}"));
+            root.selectedTarget = String(stored.target || "");
+        } catch (parseError) {
+            root.selectedTarget = "";
+        }
+    }
+
     function clearSignal() {
         root.detectedHz = 0;
         root.confidence = 0;
@@ -107,13 +231,17 @@ Panel {
             root.resetDetector();
     }
 
+    PwObjectTracker {
+        objects: root.captureSources
+    }
+
     // The detector only runs while the panel is open. A tuner that keeps a
     // capture stream alive in the background is a microphone nobody asked for.
     Process {
         id: detector
 
-        running: root.opened
-        command: ["python3", root.detectorPath]
+        running: root.opened && root.detectorArmed
+        command: root.detectorCommand
         // Keep whatever error the detector reported on its way out; it exits
         // immediately after emitting one, and it is the only diagnostic the
         // panel can show.
@@ -128,6 +256,33 @@ Panel {
             }
         }
 
+    }
+
+    Timer {
+        id: rearm
+
+        interval: 120
+        onTriggered: root.detectorArmed = true
+    }
+
+    // FileView will not create the parent directory, so this runs once.
+    Process {
+        id: ensureStateDir
+
+        running: true
+        command: ["mkdir", "-p", Quickshell.env("HOME") + "/.config/omarchy-tuner"]
+    }
+
+    FileView {
+        id: stateFile
+
+        path: root.statePath
+        atomicWrites: true
+        printErrors: false
+        onLoaded: root.loadSelection(text())
+        // Absent on first run, which is not a failure: no stored choice means
+        // the PipeWire default.
+        onLoadFailed: root.loadSelection("{}")
     }
 
     KeyboardPanel {
@@ -261,6 +416,75 @@ Panel {
                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                     font.pixelSize: Style.font.caption
                     wrapMode: Text.WordWrap
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: Util.alpha(root.barForeground, 0.15)
+                }
+
+                Text {
+                    width: parent.width
+                    text: "Input"
+                    color: root.barForeground
+                    opacity: 0.6
+                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                }
+
+                Text {
+                    width: parent.width
+                    visible: !root.selectionAvailable
+                    text: "The chosen input is not connected. Capture falls back to the system default without warning."
+                    color: Color.urgent
+                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                }
+
+                Repeater {
+                    model: root.inputOptions
+
+                    delegate: Rectangle {
+                        id: option
+
+                        required property var modelData
+
+                        readonly property bool chosen: option.modelData.name === root.selectedTarget
+
+                        width: content.width
+                        height: optionLabel.implicitHeight + Style.space(8)
+                        radius: Style.cornerRadius
+                        color: option.chosen ? Util.alpha(Color.accent, 0.18) : (hover.containsMouse ? Util.alpha(root.barForeground, 0.08) : "transparent")
+
+                        Text {
+                            id: optionLabel
+
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: Style.space(6)
+                            anchors.rightMargin: Style.space(6)
+                            text: option.modelData.label
+                            color: option.chosen ? Color.accent : root.barForeground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                            elide: Text.ElideRight
+                        }
+
+                        MouseArea {
+                            id: hover
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.selectTarget(option.modelData.name)
+                        }
+
+                    }
+
                 }
 
             }

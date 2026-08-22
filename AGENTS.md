@@ -16,6 +16,13 @@ installable.
 - Keep `manifest.json` at the repository root.
 - Run `make check` after changing the manifest, QML, or JavaScript.
 - Run `make sync` to copy a validated change into the local Omarchy install.
+- After a **QML** change, `make sync` is not enough: run `omarchy-restart-shell`.
+  This Omarchy build has no hot reload for local plugin components, so the
+  shell keeps serving the copy it loaded at startup. Never substitute
+  `omarchy refresh shell` -- it resets `shell.json` to defaults.
+- Never read `PwNode.properties`. This plugin holds a capture stream open while
+  its panel is up, which is the exact condition the built-in audio panel warns
+  destabilises Quickshell's Pipewire service.
 - Never edit files under `/usr/share/omarchy/`; they are packaged references.
 - Do not start a second Quickshell process. Use `omarchy-shell` IPC and the
   existing Omarchy shell.
@@ -32,6 +39,12 @@ installable.
   open in the background.
 - Read `README.md` before changing the detector; the line protocol between the
   detector and `Panel.qml` is the contract that keeps the two replaceable.
+
+## State
+
+The chosen input lives in `~/.config/omarchy-tuner/input.json`. Never store
+state under `~/.config/omarchy/plugins/`: `make sync` rsyncs that directory
+with `--delete`.
 
 ## Toolchain
 

@@ -8,17 +8,18 @@ Plugin id: `dev.hyeongjin.tuner`
 ## Status
 
 Working. Audio capture and pitch detection are implemented; the panel shows the
-note, the cents offset, the frequency, and the input level.
+note, the cents offset, the frequency, the input level, and a list of inputs to
+capture from. The bar widget is a drawn tuning fork that turns the accent colour
+while the note is in tune.
 
-Not done yet: there is no input picker in the panel. The panel launches the
-detector with no arguments, so it captures from the system default source. The
-`--target` flag below only applies to standalone runs; the panel's only lever is
-the `TUNER_TARGET` environment variable, which has to be set in the environment
-the Omarchy shell itself was started in.
+The panel lists the available PipeWire inputs and remembers the choice in
+`~/.config/omarchy-tuner/input.json`. "System default" is the default and stays
+first in the list, so an unplugged interface is never a dead end.
 
 Note that `pw-cat` does not fail on an unknown `--target`: it falls back to the
-default source silently, so a typo in a node name looks like a working tuner
-listening to the wrong input.
+default source silently, so a stale node name looks like a working tuner
+listening to the wrong input. The picker says so when the stored choice is not
+among the connected sources.
 
 ## Development
 
@@ -57,6 +58,22 @@ over the limit rather than as silence.
 `Makefile` and `scripts/*.sh` are a copy of the shared playground toolchain
 rather than a shared dependency, so a fix in one repository has to be ported to
 the other by hand.
+
+### QML changes need a shell restart
+
+`make sync` is enough for `scripts/pitch-detect.py`, because the detector is a
+subprocess the shell spawns fresh from disk every time the panel opens. It is
+**not** enough for the QML. This Omarchy build has no hot reload for local
+plugin components: `PluginRegistry` emits `localPluginChanged` and nothing in
+the shell listens to it, so a synced `.qml` sits on disk while the shell keeps
+serving the copy it loaded at startup.
+
+```
+make sync && omarchy-restart-shell
+```
+
+Do not reach for `omarchy refresh shell` instead — that resets `shell.json` to
+defaults and takes every plugin out of the bar with it.
 
 ## Audio architecture
 
@@ -180,17 +197,21 @@ rather than a convenience:
 
 ### Choosing an input
 
-There is no picker in the panel yet, so the detector captures from the PipeWire
-default source. On a laptop that is usually the internal microphone array,
-which is a poor tuner input: its broadband noise floor sits high enough that a
+The panel's Input list is built from `Pipewire.nodes`, filtered to real capture
+sources. It deliberately never reads `PwNode.properties`: that is invalid until
+a node is bound, and the built-in audio panel documents that reading it while
+capture streams appear can destabilise Quickshell's Pipewire service — and this
+plugin creates a capture stream every time its panel opens.
+
+Which input to pick matters more than it sounds. A laptop's internal microphone
+array is a poor tuner input: its broadband noise floor sits high enough that a
 quietly played instrument never becomes the most periodic thing in the window.
 An unplugged electric instrument is not audible to it at all — that needs an
 audio interface, and no software setting substitutes for one.
 
 ```
-scripts/pitch-detect.py --list-inputs                   # see what exists
+scripts/pitch-detect.py --list-inputs                   # the same list, in a shell
 pactl set-source-volume @DEFAULT_SOURCE@ 100%           # the array is often low
-pactl set-default-source <node>                         # point the panel at it
 ```
 
 ### Microphone access
