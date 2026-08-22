@@ -40,11 +40,11 @@ rsync -a --delete \
   --exclude '.editorconfig' \
   --exclude '.gitignore' \
   --exclude 'AGENTS.md' \
-  --exclude 'brainstorming.md' \
   --exclude 'CLAUDE.md' \
   --exclude 'LICENSE' \
   --exclude 'Makefile' \
   --exclude 'README.md' \
+  --exclude 'docs/' \
   --exclude 'scripts/doctor.sh' \
   --exclude 'scripts/sync-dev.sh' \
   --exclude 'scripts/validate-plugin.sh' \
