@@ -56,6 +56,12 @@ Panel {
     property bool detectorArmed: true
     readonly property string statePath: Quickshell.env("HOME") + "/.config/omarchy-tuner/input.json"
     readonly property var nodes: Pipewire.nodes ? Pipewire.nodes.values : []
+    readonly property var defaultSource: Pipewire.defaultAudioSource
+    // Naming what "System default" currently resolves to, so the safe choice
+    // is not also the opaque one.
+    readonly property string defaultSourceLabel: root.defaultSource
+        ? root.friendlyLabel(root.defaultSource.nickname || root.defaultSource.description || root.defaultSource.name || "")
+        : ""
     // Deliberately never reads node.properties. That is invalid until a node
     // is bound, and the audio panel documents that reading it while capture
     // streams appear can destabilise Quickshell's Pipewire service -- and this
@@ -96,7 +102,9 @@ Panel {
     readonly property var inputOptions: {
         var options = [{
             "value": "",
-            "label": "System default"
+            "label": root.defaultSourceLabel.length > 0
+                ? "System default (" + root.defaultSourceLabel + ")"
+                : "System default"
         }];
         for (var index = 0; index < root.captureSources.length; index++) {
             var node = root.captureSources[index];
@@ -293,7 +301,9 @@ Panel {
         bar: root.bar
         open: root.opened
         focusTarget: keyCatcher
-        contentWidth: panel.fittedContentWidth(Style.space(320))
+        // Wide enough for "System default (<device>)" to sit on one line. The
+        // resolved name is the point of that row; eliding it defeats it.
+        contentWidth: panel.fittedContentWidth(Style.space(380))
         contentHeight: panel.fittedContentHeight(content.implicitHeight)
 
         PanelKeyCatcher {
