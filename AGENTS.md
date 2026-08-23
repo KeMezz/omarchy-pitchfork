@@ -74,6 +74,24 @@ The chosen input and tuning live in
 toolchain, not a shared dependency. Fixes worth having in both places have to
 be ported by hand.
 
+## Releasing
+
+Published at https://github.com/KeMezz/omarchy-pitchfork. There is no
+marketplace in this Omarchy build: distribution is `omarchy plugin add
+<git-url>`, which clones the repository and runs `omarchy plugin validate` on
+the clone. So the gate for a release is that a **fresh clone** validates --
+notably with no symlink anywhere outside `.git`, which is why `CLAUDE.md` is
+gitignored rather than committed.
+
+`main` is the release channel. `omarchy plugin update` does `git fetch origin
+HEAD` and `merge --ff-only`, showing the user a diff before it merges. Two
+consequences:
+
+- **Never rewrite `main`.** A force-push breaks `--ff-only` for everyone who
+  has already installed, and their update fails rather than degrading.
+- Anything committed to `main` is shipped. There is no separate release step to
+  catch a mistake, and the diff the user is shown is the commit history.
+
 ## Agent skills
 
 ### Issue tracker
