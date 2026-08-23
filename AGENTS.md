@@ -1,8 +1,8 @@
 # Repository guidance
 
-This repository is the Omarchy Quattro **Tuner** plugin: an instrument tuner
+This repository is **Pitchfork**, an Omarchy Quattro plugin: an instrument tuner
 for guitar and bass. Treat the repository root as the plugin source and
-`~/.config/omarchy/plugins/dev.hyeongjin.tuner/` only as a generated
+`~/.config/omarchy/plugins/dev.hyeongjin.pitchfork/` only as a generated
 development install.
 
 One plugin per repository is deliberate. `omarchy plugin add <git-url>` clones
@@ -64,7 +64,7 @@ installable.
 ## State
 
 The chosen input and tuning live in
-`~/.config/omarchy-tuner/settings.json`. Never store state under
+`~/.config/omarchy-pitchfork/settings.json`. Never store state under
 `~/.config/omarchy/plugins/`: `make sync` rsyncs that directory with
 `--delete`.
 

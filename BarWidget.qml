@@ -47,7 +47,7 @@ BarWidget {
         panelLoader.item.hostWidget = root;
     }
 
-    moduleName: "dev.hyeongjin.tuner"
+    moduleName: "dev.hyeongjin.pitchfork"
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
     onBarChanged: injectPanel()
@@ -130,7 +130,7 @@ BarWidget {
         anchors.fill: parent
         bar: root.bar
         iconComponent: tuningFork
-        tooltipText: root.readout.length > 0 ? "Tuner · " + root.readout : "Tuner"
+        tooltipText: root.readout.length > 0 ? "Pitchfork · " + root.readout : "Pitchfork"
         onPressed: function(buttonCode) {
             if (buttonCode === Qt.LeftButton)
                 root.toggle();

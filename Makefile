@@ -13,7 +13,7 @@ JS_FILES := $(sort $(wildcard *.js))
 
 help:
 	@printf '%s\n' \
-	  'Omarchy Tuner plugin' \
+	  'Omarchy Pitchfork plugin' \
 	  '' \
 	  '  make doctor       Check the local toolchain and shell status' \
 	  '  make check        Validate manifest, lint QML, run JS tests' \
@@ -22,8 +22,8 @@ help:
 	  '  make install-dev  Copy, discover, and enable the plugin' \
 	  '  make sync         Validate and copy changes into Omarchy' \
 	  '  make watch        Sync automatically whenever source changes' \
-	  '  make summon       Open the tuner panel' \
-	  '  make hide         Close the tuner panel' \
+	  '  make summon       Open the Pitchfork panel' \
+	  '  make hide         Close the Pitchfork panel' \
 	  '  make status       Show the discovered plugin record' \
 	  '  make logs         Tail recent Omarchy shell logs' \
 	  '  make uninstall-dev Remove the development copy'

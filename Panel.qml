@@ -95,7 +95,7 @@ Panel {
     // with no --target.
     property string selectedTarget: ""
     property bool detectorArmed: true
-    readonly property string statePath: Quickshell.env("HOME") + "/.config/omarchy-tuner/settings.json"
+    readonly property string statePath: Quickshell.env("HOME") + "/.config/omarchy-pitchfork/settings.json"
     readonly property var nodes: Pipewire.nodes ? Pipewire.nodes.values : []
     readonly property var defaultSource: Pipewire.defaultAudioSource
     // Naming what "System default" currently resolves to, so the safe choice
@@ -321,7 +321,7 @@ Panel {
         root.detectorStopped = false;
     }
 
-    moduleName: "dev.hyeongjin.tuner"
+    moduleName: "dev.hyeongjin.pitchfork"
     manageIpc: false
     // Opening the panel is the retry: it restarts the detector, so a stale
     // error from the previous run must not survive into the new one. The
@@ -399,7 +399,7 @@ Panel {
         id: ensureStateDir
 
         running: true
-        command: ["mkdir", "-p", Quickshell.env("HOME") + "/.config/omarchy-tuner"]
+        command: ["mkdir", "-p", Quickshell.env("HOME") + "/.config/omarchy-pitchfork"]
     }
 
     FileView {
@@ -447,7 +447,7 @@ Panel {
 
                 Text {
                     width: parent.width
-                    text: "Tuner"
+                    text: "Pitchfork"
                     color: root.barForeground
                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                     font.pixelSize: Style.font.subtitle

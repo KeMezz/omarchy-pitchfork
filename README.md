@@ -1,16 +1,46 @@
-# Tuner
+# Pitchfork
 
 An instrument tuner for the Omarchy Quattro bar. Shows the note, the deviation
 in cents, and the detected frequency for a guitar or bass on a PipeWire input.
 
-Plugin id: `dev.hyeongjin.tuner`
+## Install
 
-## Status
+```
+omarchy plugin add https://github.com/KeMezz/omarchy-pitchfork.git --enable
+```
 
-Working. Audio capture and pitch detection are implemented; the panel shows the
-note, the cents offset, the frequency, the input level, a tuning to measure
-against, and a list of inputs to capture from. The bar widget is a drawn tuning
-fork that turns the accent colour while the note is in tune.
+Plugin id: `dev.hyeongjin.pitchfork`
+
+## What it does to your machine
+
+Plugins run as unsandboxed code inside the long-lived Omarchy shell process, so
+this belongs above everything else rather than in a footnote.
+
+- **It opens an audio input, and only while its panel is open.** Closing the
+  panel ends the capture; there is no background listening. Audio is analysed a
+  window at a time in memory and discarded — nothing is written to disk and
+  nothing leaves the machine.
+- **It spawns one child process**, `pw-cat`, to read that input, and reads pitch
+  readings back from a Python script over a pipe. Both are bound to the panel's
+  lifetime, including if the shell kills the plugin outright.
+- **No network access. No privileged actions** — no `sudo`, no `pkexec`, no
+  systemd units, no installer, no bundled binaries.
+- **Requirements**, both present on a stock Omarchy system: `pw-cat` (ships with
+  PipeWire) and `python3` 3.12 or newer.
+
+## Using it
+
+Click the tuning fork in the bar. Pick an input, pick a tuning, play a note.
+
+The panel shows the note, the deviation in cents, the frequency, and the input
+level. The bar widget's fork turns the accent colour while the note is in tune,
+so it reads at a glance without the panel open.
+
+A laptop's internal microphone is a poor input for this: its noise floor is high
+enough that a quietly played instrument never becomes the most periodic thing in
+the window, and an unplugged electric instrument is not audible to it at all.
+An audio interface is the difference between a tuner that works and one that
+never finds a pitch.
 
 A tuning is chosen from a dropdown, and the strings of that tuning sit under the
 meter as a strip. A string lights up once it has been played in tune for half a
@@ -39,7 +69,7 @@ the note died would claim a string is in tune with nothing sounding.
 
 The panel offers the available PipeWire inputs in a collapsed dropdown and
 remembers the input, the tuning, and the reference in
-`~/.config/omarchy-tuner/settings.json`. "System default" is the default input
+`~/.config/omarchy-pitchfork/settings.json`. "System default" is the default input
 and stays first in the list, so an unplugged interface is never a dead end.
 
 Note that `pw-cat` does not fail on an unknown `--target`: it falls back to the
@@ -96,7 +126,7 @@ make check        # validate the manifest and lint QML
 make install-dev  # copy, discover, and enable the plugin
 make sync         # validate and copy a change into Omarchy
 make watch        # sync automatically whenever source changes
-make summon       # open the tuner panel
+make summon       # open the Pitchfork panel
 make logs         # tail recent Omarchy shell logs
 ```
 

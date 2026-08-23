@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "dev.hyeongjin.tuner",
-  "name": "Tuner",
+  "id": "dev.hyeongjin.pitchfork",
+  "name": "Pitchfork",
   "version": "0.1.0",
   "author": "Hyeongjin",
   "license": "MIT",
@@ -13,7 +13,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Tuner",
+    "displayName": "Pitchfork",
     "description": "Tune a guitar or bass from the Omarchy bar.",
     "category": "Audio",
     "allowMultiple": false,
