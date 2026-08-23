@@ -34,7 +34,6 @@ Panel {
     // so everything the reading drives carries it.
     readonly property real readingOpacity: root.holding ? 0.45 : 1
     property string selectedTuning: "chromatic"
-    property int referenceHz: 440
     // Which of the current tuning's targets have been played in tune since the
     // panel opened. Assigned rather than mutated in place, because QML only
     // notifies a var property on assignment.
@@ -55,7 +54,7 @@ Panel {
     // Tunings.js owns every pitch calculation the panel makes. One
     // implementation is the point: a readout and a target list that derive the
     // same note two different ways will eventually disagree about it.
-    readonly property var reading: Tunings.resolve(root.displayHz, root.tuning, root.referenceHz)
+    readonly property var reading: Tunings.resolve(root.displayHz, root.tuning)
     readonly property string noteLabel: root.reading ? root.reading.name : "--"
     // Left unrounded for the needle, which wants the fraction; only the text
     // beneath it rounds.
@@ -247,29 +246,6 @@ Panel {
         root.persistSettings();
     }
 
-    function selectReference(hz) {
-        var next = root.clampReference(hz);
-        if (next === root.referenceHz)
-            return ;
-
-        root.referenceHz = next;
-        // Moving the reference moves every target with it. Six strings tuned
-        // at 440 are all 23.5 cents out at 446, so keeping their marks would
-        // report a completed pass that never happened at this reference.
-        root.beginFreshPass();
-        root.persistSettings();
-    }
-
-    // 415..466 is the range the field offers, and a hand-edited settings file
-    // is the one way a value from outside it can arrive.
-    function clampReference(value) {
-        var reference = Math.round(Number(value));
-        if (!isFinite(reference) || reference <= 0)
-            return 440;
-
-        return Math.max(415, Math.min(466, reference));
-    }
-
     // Dropping running and raising it again in one block coalesces into no
     // change, and Quickshell does not restart a Process that exited while
     // running still evaluates true. So disarm now and re-arm on a later tick.
@@ -284,8 +260,7 @@ Panel {
     function persistSettings() {
         stateFile.setText(JSON.stringify({
             "target": root.selectedTarget,
-            "tuning": root.selectedTuning,
-            "referenceHz": root.referenceHz
+            "tuning": root.selectedTuning
         }, null, 2) + "\n");
     }
 
@@ -299,11 +274,9 @@ Panel {
             // Tunings.byId falls back to chromatic, so an id from an older
             // version cannot leave the panel without a tuning.
             root.selectedTuning = Tunings.byId(stored.tuning).id;
-            root.referenceHz = root.clampReference(stored.referenceHz);
         } catch (parseError) {
             root.selectedTarget = "";
             root.selectedTuning = "chromatic";
-            root.referenceHz = 440;
         }
     }
 
@@ -437,7 +410,7 @@ Panel {
         printErrors: false
         onLoaded: root.loadSettings(text())
         // Absent on first run, which is not a failure: no stored settings mean
-        // the PipeWire default input, chromatic, and A4 = 440.
+        // the PipeWire default input and chromatic.
         onLoadFailed: root.loadSettings("{}")
     }
 
@@ -460,7 +433,7 @@ Panel {
             anchors.fill: parent
             // Three controls can own the keyboard, and any of them would have
             // j/k and the digits double-driving the panel cursor.
-            blocked: inputDropdown.popupOpen || tuningDropdown.popupOpen || referenceField.field.activeFocus
+            blocked: inputDropdown.popupOpen || tuningDropdown.popupOpen
             onCloseRequested: root.close()
             onTabRequested: function(direction) {
                 root.switchPanel(direction);
@@ -598,45 +571,17 @@ Panel {
                     wrapMode: Text.WordWrap
                 }
 
-                Row {
-                    id: tuningRow
+                Dropdown {
+                    id: tuningDropdown
 
                     width: parent.width
-                    spacing: Style.space(8)
-
-                    Dropdown {
-                        id: tuningDropdown
-
-                        width: tuningRow.width - referenceField.width - tuningRow.spacing
-                        label: "Tuning"
-                        fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-                        options: root.tuningOptions
-                        value: root.selectedTuning
-                        onChanged: function(selected) {
-                            root.selectTuning(selected);
-                        }
+                    label: "Tuning"
+                    fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                    options: root.tuningOptions
+                    value: root.selectedTuning
+                    onChanged: function(selected) {
+                        root.selectTuning(selected);
                     }
-
-                    // The reference shares the tuning's row because it is one
-                    // number, and the panel cannot afford a whole line for it.
-                    NumberField {
-                        id: referenceField
-
-                        // Matched to the dropdown's own label gap, which is
-                        // what puts the two controls on the same baseline.
-                        spacing: Style.spacing.labelGap
-                        label: "A4"
-                        from: 415
-                        to: 466
-                        stepSize: 1
-                        value: root.referenceHz
-                        foreground: root.barForeground
-                        fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-                        onModified: function(reference) {
-                            root.selectReference(reference);
-                        }
-                    }
-
                 }
 
                 // The tuning's strings in order, checked off as each is played

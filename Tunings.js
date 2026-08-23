@@ -23,10 +23,17 @@ var letterOffsets = {
     "B": 11
 };
 
-// Targets are stored as note names rather than frequencies, and that is the
-// whole design: the hz for a target is derived together with the A4 reference,
-// so an adjustable reference pitch costs nothing extra -- no second table, and
-// no preset that silently keeps a 440 Hz number after the reference moves.
+// Concert pitch. Fixed rather than configurable: the panel offered an
+// adjustable A4 and it was removed as something nobody reaches for outside
+// ensemble work. Note that no measurement could tell the two apart anyway --
+// a string 8 cents sharp at A4=440 and a string in tune at A4=442 are the same
+// frequency, so which one it is lives in the player's intent, not the signal.
+var CONCERT_A_HZ = 440;
+
+// Targets are stored as note names rather than frequencies. Frequencies would
+// be a table of magic numbers that no reader can check against a fretboard,
+// and they would hide the octave -- which is the single likeliest thing to get
+// wrong here, and the thing the tests assert hardest.
 var list = [
     {
         id: "chromatic",
@@ -67,18 +74,10 @@ var list = [
 
 // -- helpers ----------------------------------------------------------------
 
-// An unset QML property arrives here as undefined, and a stored reference can
-// be anything a hand-edited file holds, so every caller gets a usable number.
-function referenceOf(referenceHz) {
-    var reference = Number(referenceHz);
-    return isFinite(reference) && reference > 0 ? reference : 440;
-}
-
 // Fractional MIDI number, which is the space the rest of the module measures
-// in: a semitone is one unit and a cent is a hundredth of one, whatever the
-// reference is.
-function midiFromHz(hz, reference) {
-    return 69 + 12 * Math.log(hz / reference) / Math.LN2;
+// in: a semitone is one unit and a cent is a hundredth of one.
+function midiFromHz(hz) {
+    return 69 + 12 * Math.log(hz / CONCERT_A_HZ) / Math.LN2;
 }
 
 // -- notation ---------------------------------------------------------------
@@ -107,12 +106,12 @@ function nameOf(midi) {
     return noteNames[pitchClass] + (Math.floor(rounded / 12) - 1);
 }
 
-function hzOf(name, referenceHz) {
+function hzOf(name) {
     var midi = midiOf(name);
     if (midi === null)
         return null;
 
-    return referenceOf(referenceHz) * Math.pow(2, (midi - 69) / 12);
+    return CONCERT_A_HZ * Math.pow(2, (midi - 69) / 12);
 }
 
 // -- lookup -----------------------------------------------------------------
@@ -137,12 +136,12 @@ function byId(id) {
 //
 // Cents are left unrounded. The readout rounds for display, and the needle
 // wants the fraction.
-function resolve(hz, tuning, referenceHz) {
+function resolve(hz, tuning) {
     var value = Number(hz);
     if (!isFinite(value) || value <= 0)
         return null;
 
-    var detected = midiFromHz(value, referenceOf(referenceHz));
+    var detected = midiFromHz(value);
     var targets = tuning && tuning.targets ? tuning.targets : [];
     var bestIndex = -1;
     var bestCents = 0;

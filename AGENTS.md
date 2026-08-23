@@ -44,23 +44,26 @@ installable.
 ## Pitch mathematics
 
 - Every pitch calculation the panel makes lives in `Tunings.js`: the preset
-  list, note-name parsing and spelling, the frequency of a target under a given
-  A4 reference, and the target a reading resolves to. Two implementations of
-  the same arithmetic will eventually disagree about a note, so the QML keeps
-  none of its own.
+  list, note-name parsing and spelling, target frequencies, and the target a
+  reading resolves to. Two implementations of the same arithmetic will
+  eventually disagree about a note, so the QML keeps none of its own.
+- Concert pitch is the `CONCERT_A_HZ` constant, not a parameter. An adjustable
+  reference existed and was removed; do not reintroduce it as a dead argument
+  that no caller passes.
 - `tests/tunings.test.mjs` covers that file and runs under plain node with
-  nothing installed. A change to `Tunings.js` has to leave
-  `node tests/tunings.test.mjs` green; `make check` does not run it.
+  nothing installed. `make check` runs it, via `make test`, which also
+  `node --check`s every module -- qmllint never opens a `.js` file, so without
+  that a wrong preset or an unparseable `Tunings.js` passes the whole gate.
 - `Tunings.js` is loaded by QML and by node both, so it stays CommonJS-shaped
   and must never gain a `.pragma library` line, which node rejects as a syntax
   error.
-- The note naming in `scripts/pitch-detect.py` is deliberately separate and
-  fixed at A4 = 440. The detector's contract is `hz`; its own naming exists for
-  the terminal diagnostics and must not learn about tunings or the reference.
+- The note naming in `scripts/pitch-detect.py` is deliberately separate. The
+  detector's contract is `hz`; its own naming exists for the terminal
+  diagnostics and must not learn about tunings.
 
 ## State
 
-The chosen input, tuning, and A4 reference live in
+The chosen input and tuning live in
 `~/.config/omarchy-tuner/settings.json`. Never store state under
 `~/.config/omarchy/plugins/`: `make sync` rsyncs that directory with
 `--delete`.

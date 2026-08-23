@@ -19,10 +19,15 @@ on the way somewhere else. The strip starts empty again whenever the panel opens
 or the tuning changes, because either one begins a fresh pass over the strings.
 Chromatic has no strings and so shows no strip.
 
-The A4 reference is adjustable from 415 to 466 Hz, in the same row as the
-tuning. Neither the tuning nor the reference reaches the detector: both are
-interpretation of a frequency that was already measured in hertz, so changing
-either one leaves capture running.
+Concert pitch is fixed at A4 = 440. The panel briefly offered an adjustable
+reference and it was removed: outside ensemble work nobody reaches for it, and
+no measurement can distinguish the two readings it would produce anyway — a
+string 8 cents sharp at A4 = 440 and a string in tune at A4 = 442 are the same
+frequency, so which one it is lives in the player's intent rather than in the
+signal.
+
+The tuning never reaches the detector. It is interpretation of a frequency that
+was already measured in hertz, so changing it leaves capture running.
 
 A reading outlives the note that produced it by 1.5 seconds, dimmed for as long
 as it is held. A plucked string dies while the player is still looking at the
@@ -46,11 +51,11 @@ among the connected sources.
 
 `Tunings.js` holds the preset list and every pitch calculation the panel makes.
 Targets are stored as note names — guitar standard is
-`["E2", "A2", "D3", "G3", "B3", "E4"]` — rather than as frequencies, and that
-is what makes an adjustable reference pitch free. A target's frequency is
-derived from its name together with the current A4, so moving the reference
-moves every target by the same interval: there is no second table to keep in
-step, and no preset left holding a 440 Hz number after the reference has moved.
+`["E2", "A2", "D3", "G3", "B3", "E4"]` — rather than as frequencies. A table of
+frequencies would be magic numbers no reader can check against a fretboard, and
+it would hide the octave, which is the single likeliest thing to get wrong here
+and the thing the tests assert hardest. Frequencies are derived from the names
+against the `CONCERT_A_HZ` constant.
 
 Resolution is to the nearest target rather than to the nearest semitone, which
 is the reason to choose a tuning at all. A string a whole tone flat still
@@ -81,7 +86,7 @@ plugin is ever published with users on the old name, the migration goes in
 before the rename ships.
 
 A missing `settings.json` is read as first-run defaults — the PipeWire default
-input, chromatic, and A4 = 440.
+input, and chromatic.
 
 ## Development
 
@@ -128,10 +133,10 @@ A moving level bar means capture works. Aperiodicity is what the rejection
 threshold actually tests, so a note that will not register shows up as a number
 over the limit rather than as silence.
 
-The note column in that output is chromatic at A4 = 440 and stays that way.
-The detector is a signal diagnostic rather than a tuner: it reports `hz`, and
-the naming it does for the terminal is there to make a reading legible, not to
-agree with the panel. With a tuning chosen or the reference moved, the two name
+The note column in that output is chromatic and stays that way. The detector is
+a signal diagnostic rather than a tuner: it reports `hz`, and the naming it does
+for the terminal is there to make a reading legible, not to
+agree with the panel. With a tuning chosen, the two name
 the same pitch differently, and that is expected.
 
 `Makefile` and `scripts/*.sh` are a copy of the shared playground toolchain
@@ -280,9 +285,9 @@ rather than a convenience:
 The panel's Input dropdown is the shared `qs.Ui` `Dropdown`, so it matches every
 other select in the shell and keeps the panel short when it is closed. While its
 popup owns the keyboard, `PanelKeyCatcher.blocked` stops the panel's own cursor
-model from double-driving on j/k. The tuning dropdown and the A4 field block it
-the same way, so any control added to the panel that takes the keyboard has to
-join that condition. Its options are built from `Pipewire.nodes`,
+model from double-driving on j/k. The tuning dropdown blocks it the same way, so
+any control added to the panel that takes the keyboard has to join that
+condition. Its options are built from `Pipewire.nodes`,
 filtered to real capture sources. It deliberately never reads `PwNode.properties`: that is invalid until
 a node is bound, and the built-in audio panel documents that reading it while
 capture streams appear can destabilise Quickshell's Pipewire service — and this

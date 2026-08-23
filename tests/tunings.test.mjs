@@ -13,9 +13,10 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const Tunings = require("../Tunings.js");
 
-// The reference tone whose deviation the assertions are stated in.
-function centsBetween(hz, referenceHz) {
-    return 1200 * Math.log2(hz / referenceHz);
+// Interval between two frequencies in cents, which is how the assertions below
+// state a deviation instead of comparing raw hertz.
+function centsBetween(hz, against) {
+    return 1200 * Math.log2(hz / against);
 }
 
 // A frequency that is exactly `cents` away from `hz`, which is how the detuned
@@ -54,11 +55,21 @@ test("nameOf maps MIDI numbers to sharps-only names", () => {
     assert.equal(Tunings.nameOf(63), "D#4");
 });
 
-test("hzOf derives target frequencies from the A4 reference", () => {
-    assert.equal(Tunings.hzOf("A4", 440), 440);
+test("hzOf derives target frequencies from concert pitch", () => {
+    assert.equal(Tunings.hzOf("A4"), 440);
     for (const [name, expected] of [["E2", 82.4069], ["B0", 30.8677], ["E1", 41.2034]]) {
-        const actual = Tunings.hzOf(name, 440);
+        const actual = Tunings.hzOf(name);
         assert.ok(Math.abs(actual - expected) < 0.01, `${name} was ${actual}, expected ${expected}`);
+    }
+});
+
+// Concert pitch is a constant in the module rather than an argument, so this is
+// what pins it: every A is a power-of-two multiple of 440, which no arithmetic
+// slip in the exponent survives.
+test("concert pitch is 440 and octaves are exact doublings", () => {
+    for (const [name, expected] of [["A0", 27.5], ["A1", 55], ["A2", 110], ["A3", 220], ["A4", 440], ["A5", 880]]) {
+        const actual = Tunings.hzOf(name);
+        assert.ok(Math.abs(actual - expected) < 1e-9, `${name} was ${actual}, expected ${expected}`);
     }
 });
 
@@ -95,7 +106,7 @@ test("every preset holds its canonical targets at the right octave", () => {
         assert.deepEqual(tuning.targets, expected.map(([name]) => name), `${tuning.id} targets`);
 
         for (const [name, hz] of expected) {
-            const actual = Tunings.hzOf(name, 440);
+            const actual = Tunings.hzOf(name);
             assert.ok(Math.abs(actual - hz) < 0.01, `${tuning.id} ${name} was ${actual} Hz, expected ${hz} Hz`);
         }
     }
@@ -110,15 +121,15 @@ test("the canonical table rejects a preset moved by an octave", () => {
     assert.deepEqual(shifted, ["B1", "E2", "A2", "D3", "G3"]);
 });
 
-// The check that proves storing targets as note names rather than frequencies
-// was the right call: one reference change moves every target, by the same
-// interval, with no per-preset table to update.
-test("moving the reference from 440 to 442 shifts every target by +7.85 cents", () => {
+// Note names are the storage format, so every preset entry has to be a name the
+// module can actually resolve. A typo here would otherwise surface as a blank
+// string in the panel's target strip rather than as a failure.
+test("every preset target is a resolvable note name", () => {
     let checked = 0;
     for (const tuning of Tunings.list) {
         for (const target of tuning.targets) {
-            const shift = centsBetween(Tunings.hzOf(target, 442), Tunings.hzOf(target, 440));
-            assert.ok(Math.abs(shift - 7.85) < 0.01, `${tuning.id} ${target} shifted ${shift} cents`);
+            assert.notEqual(Tunings.midiOf(target), null, `${tuning.id} has unresolvable target ${target}`);
+            assert.equal(Tunings.nameOf(Tunings.midiOf(target)), target, `${tuning.id} target ${target} is not canonically spelled`);
             checked++;
         }
     }
@@ -136,7 +147,7 @@ test("byId finds every preset and falls back to chromatic", () => {
 test("chromatic mode reports the nearest semitone", () => {
     const chromatic = Tunings.byId("chromatic");
     for (const name of ["B0", "E1", "E2", "A2", "D3", "A4", "E4"]) {
-        const resolved = Tunings.resolve(Tunings.hzOf(name, 440), chromatic, 440);
+        const resolved = Tunings.resolve(Tunings.hzOf(name), chromatic);
         assert.equal(resolved.name, name);
         assert.ok(Math.abs(resolved.cents) < 0.01, `${name} read ${resolved.cents} cents off`);
         assert.equal(resolved.targetIndex, -1);
@@ -144,14 +155,14 @@ test("chromatic mode reports the nearest semitone", () => {
 });
 
 test("chromatic mode reports the deviation of a detuned input", () => {
-    const resolved = Tunings.resolve(detune(82.4069, -30), Tunings.byId("chromatic"), 440);
+    const resolved = Tunings.resolve(detune(82.4069, -30), Tunings.byId("chromatic"));
     assert.equal(resolved.name, "E2");
     assert.ok(Math.abs(resolved.cents + 30) < 0.1, `read ${resolved.cents} cents`);
     assert.equal(resolved.targetIndex, -1);
 });
 
 test("guitar mode snaps a badly flat low E to E2, not to D#2", () => {
-    const resolved = Tunings.resolve(detune(82.4069, -40), Tunings.byId("guitar"), 440);
+    const resolved = Tunings.resolve(detune(82.4069, -40), Tunings.byId("guitar"));
     assert.equal(resolved.name, "E2");
     assert.ok(Math.abs(resolved.cents + 40) < 0.1, `read ${resolved.cents} cents`);
     assert.equal(resolved.targetIndex, 0);
@@ -163,9 +174,9 @@ test("guitar mode snaps a badly flat low E to E2, not to D#2", () => {
 // player meant.
 test("guitar mode still names E2 for a string a whole tone flat", () => {
     const flat = detune(82.4069, -200);
-    assert.equal(Tunings.resolve(flat, Tunings.byId("chromatic"), 440).name, "D2");
+    assert.equal(Tunings.resolve(flat, Tunings.byId("chromatic")).name, "D2");
 
-    const resolved = Tunings.resolve(flat, Tunings.byId("guitar"), 440);
+    const resolved = Tunings.resolve(flat, Tunings.byId("guitar"));
     assert.equal(resolved.name, "E2");
     assert.ok(Math.abs(resolved.cents + 200) < 0.1, `read ${resolved.cents} cents`);
     assert.equal(resolved.targetIndex, 0);
@@ -174,7 +185,7 @@ test("guitar mode still names E2 for a string a whole tone flat", () => {
 test("bass4 mode never names a note outside its own targets", () => {
     const bass4 = Tunings.byId("bass4");
     for (let hz = 30; hz <= 350; hz += 0.25) {
-        const resolved = Tunings.resolve(hz, bass4, 440);
+        const resolved = Tunings.resolve(hz, bass4);
         assert.ok(bass4.targets.includes(resolved.name), `${hz} Hz resolved to ${resolved.name}`);
         assert.equal(bass4.targets[resolved.targetIndex], resolved.name);
     }
@@ -182,10 +193,7 @@ test("bass4 mode never names a note outside its own targets", () => {
 
 test("resolve returns null when there is no pitch", () => {
     for (const hz of [0, -1, -82.4069, NaN, Infinity, null, undefined]) {
-        assert.equal(Tunings.resolve(hz, Tunings.byId("guitar"), 440), null, `${String(hz)} should not resolve`);
+        assert.equal(Tunings.resolve(hz, Tunings.byId("guitar")), null, `${String(hz)} should not resolve`);
     }
 });
 
-test("resolve treats a missing reference as 440", () => {
-    assert.deepEqual(Tunings.resolve(440, Tunings.byId("chromatic")), Tunings.resolve(440, Tunings.byId("chromatic"), 440));
-});
