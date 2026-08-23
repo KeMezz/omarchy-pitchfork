@@ -45,6 +45,8 @@ rsync -a --delete \
   --exclude 'Makefile' \
   --exclude 'README.md' \
   --exclude 'docs/' \
+  --exclude 'tests/' \
+  --exclude '__pycache__/' \
   --exclude 'scripts/doctor.sh' \
   --exclude 'scripts/sync-dev.sh' \
   --exclude 'scripts/validate-plugin.sh' \
