@@ -3,10 +3,7 @@
 An instrument tuner for the Omarchy Quattro bar. Note, cents, and input level
 for a guitar or bass, read from a PipeWire input.
 
-![The Pitchfork panel: a bass low E in tune at 41.23 Hz, +1 cent](docs/pitchfork.png)
-
-<!-- The screenshot predates the Chromatic/Guitar/Bass toggle and needs
-retaking. -->
+![The Pitchfork panel: a 4-string bass D string in tune at 73.48 Hz, +2 cents, with the low E and A already checked off](docs/pitchfork.png)
 
 ## Install
 

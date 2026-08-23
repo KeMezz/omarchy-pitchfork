@@ -262,17 +262,18 @@ invention — so a sink's output cannot be picked from the dropdown even though
 `pitch-detect.py --list-inputs` lists those names, because that command reads
 `pactl` rather than the PipeWire graph.
 
+The Input row is a `PitchDropdown` like the other two, and it is the only one of
+the three whose list can overflow. Its options are built from `Pipewire.nodes`,
+filtered to real capture sources. It deliberately never reads
+`PwNode.properties`: that is invalid until a node is bound, and the built-in
+audio panel documents that reading it while capture streams appear can
+destabilise Quickshell's Pipewire service — and this plugin creates a capture
+stream every time its panel opens.
 
-The panel's Input dropdown is the shared `qs.Ui` `Dropdown`, so it matches every
-other select in the shell and keeps the panel short when it is closed. While its
-popup owns the keyboard, `PanelKeyCatcher.blocked` stops the panel's own cursor
-model from double-driving on j/k. The tuning dropdown blocks it the same way, so
-any control added to the panel that takes the keyboard has to join that
-condition. Its options are built from `Pipewire.nodes`,
-filtered to real capture sources. It deliberately never reads `PwNode.properties`: that is invalid until
-a node is bound, and the built-in audio panel documents that reading it while
-capture streams appear can destabilise Quickshell's Pipewire service — and this
-plugin creates a capture stream every time its panel opens.
+While a popup owns the keyboard, `PanelKeyCatcher.blocked` stops the panel's own
+cursor model from double-driving on j/k. All three dropdowns are in that
+condition, so any control added to the panel that takes the keyboard has to join
+it.
 
 Which input to pick matters more than it sounds. A laptop's internal microphone
 array is a poor tuner input: its broadband noise floor sits high enough that a
