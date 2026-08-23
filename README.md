@@ -12,7 +12,8 @@ note, the cents offset, the frequency, the input level, and a list of inputs to
 capture from. The bar widget is a drawn tuning fork that turns the accent colour
 while the note is in tune.
 
-The panel lists the available PipeWire inputs and remembers the choice in
+The panel offers the available PipeWire inputs in a collapsed dropdown and
+remembers the choice in
 `~/.config/omarchy-tuner/input.json`. "System default" is the default and stays
 first in the list, so an unplugged interface is never a dead end.
 
@@ -197,8 +198,11 @@ rather than a convenience:
 
 ### Choosing an input
 
-The panel's Input list is built from `Pipewire.nodes`, filtered to real capture
-sources. It deliberately never reads `PwNode.properties`: that is invalid until
+The panel's Input dropdown is the shared `qs.Ui` `Dropdown`, so it matches every
+other select in the shell and keeps the panel short when it is closed. While its
+popup owns the keyboard, `PanelKeyCatcher.blocked` stops the panel's own cursor
+model from double-driving on j/k. Its options are built from `Pipewire.nodes`,
+filtered to real capture sources. It deliberately never reads `PwNode.properties`: that is invalid until
 a node is bound, and the built-in audio panel documents that reading it while
 capture streams appear can destabilise Quickshell's Pipewire service — and this
 plugin creates a capture stream every time its panel opens.

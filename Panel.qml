@@ -95,13 +95,13 @@ Panel {
     // from a device that has been unplugged.
     readonly property var inputOptions: {
         var options = [{
-            "name": "",
+            "value": "",
             "label": "System default"
         }];
         for (var index = 0; index < root.captureSources.length; index++) {
             var node = root.captureSources[index];
             options.push({
-                "name": String(node.name || ""),
+                "value": String(node.name || ""),
                 "label": root.sourceLabel(node)
             });
         }
@@ -300,6 +300,7 @@ Panel {
             id: keyCatcher
 
             anchors.fill: parent
+            blocked: inputDropdown.popupOpen
             onCloseRequested: root.close()
             onTabRequested: function(direction) {
                 root.switchPanel(direction);
@@ -426,16 +427,6 @@ Panel {
 
                 Text {
                     width: parent.width
-                    text: "Input"
-                    color: root.barForeground
-                    opacity: 0.6
-                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                    font.pixelSize: Style.font.caption
-                    font.bold: true
-                }
-
-                Text {
-                    width: parent.width
                     visible: !root.selectionAvailable
                     text: "The chosen input is not connected. Capture falls back to the system default without warning."
                     color: Color.urgent
@@ -444,47 +435,17 @@ Panel {
                     wrapMode: Text.WordWrap
                 }
 
-                Repeater {
-                    model: root.inputOptions
+                Dropdown {
+                    id: inputDropdown
 
-                    delegate: Rectangle {
-                        id: option
-
-                        required property var modelData
-
-                        readonly property bool chosen: option.modelData.name === root.selectedTarget
-
-                        width: content.width
-                        height: optionLabel.implicitHeight + Style.space(8)
-                        radius: Style.cornerRadius
-                        color: option.chosen ? Util.alpha(Color.accent, 0.18) : (hover.containsMouse ? Util.alpha(root.barForeground, 0.08) : "transparent")
-
-                        Text {
-                            id: optionLabel
-
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: Style.space(6)
-                            anchors.rightMargin: Style.space(6)
-                            text: option.modelData.label
-                            color: option.chosen ? Color.accent : root.barForeground
-                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                            font.pixelSize: Style.font.body
-                            elide: Text.ElideRight
-                        }
-
-                        MouseArea {
-                            id: hover
-
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.selectTarget(option.modelData.name)
-                        }
-
+                    width: parent.width
+                    label: "Input"
+                    fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                    options: root.inputOptions
+                    value: root.selectedTarget
+                    onChanged: function(selected) {
+                        root.selectTarget(selected);
                     }
-
                 }
 
             }
