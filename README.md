@@ -59,8 +59,8 @@ Plugins run unsandboxed inside the long-lived shell process, so:
   turn runs `pw-cat` to read the input. Both are bound to the panel's lifetime
   even if the shell kills the plugin outright. One `mkdir -p` creates
   `~/.config/omarchy-pitchfork/` for the settings file.
-- No network. No `sudo`, no `pkexec`, no systemd units, no installer, no
-  bundled binaries, nothing downloaded or compiled at any point.
+- No network. No sudo, no pkexec, no systemd units, no installer, no bundled
+  binaries, nothing downloaded or compiled at any point.
 - It writes exactly one file, `~/.config/omarchy-pitchfork/settings.json`, and
   never touches your Omarchy configuration.
 

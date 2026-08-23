@@ -133,6 +133,15 @@ below.
   `tuner`, `tuning`, `chromatic`, `guitar`, `bass`, `pitch` and `cents` in it.
 - A root `preview.png` (or `.jpg`/`.webp`/`.avif`) is what the site turns into
   the card and detail images. `docs/` is not scanned for one.
+- **Never put `sudo` or `pkexec` in backticks in the root README.** The
+  automated security baseline scans the root README for privilege boundaries and
+  strips negations like "no sudo, no pkexec" first -- but its stripper matches
+  `\s+` before the command name, so a backtick defeats it and the plain token
+  survives. That is what turned a sentence saying the plugin uses neither into a
+  reported `privilege` capability, which downgrades the listing from an
+  automatic `passed` to a maintainer-attested `review-required`. The words
+  themselves are fine unquoted. `docs/` and `tests/` are outside the scan, as
+  are all `.md` files other than the root README.
 - The README must document **installation and removal**, and the repository
   must carry a root license file. Both are validated, not advisory.
 - Publishing an update means opening a verification issue for a specific
