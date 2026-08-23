@@ -43,17 +43,26 @@ installable.
 
 ## Pitch mathematics
 
-- Every pitch calculation the panel makes lives in `Tunings.js`: the preset
-  list, note-name parsing and spelling, target frequencies, and the target a
-  reading resolves to. Two implementations of the same arithmetic will
-  eventually disagree about a note, so the QML keeps none of its own.
+- Every pitch calculation the panel makes lives in `Tunings.js`: the family,
+  instrument and tuning tables, note-name parsing and spelling, string
+  frequencies, and the string a reading resolves to. Two implementations of the
+  same arithmetic will eventually disagree about a note, so the QML keeps none
+  of its own.
+- `normalize()` is the only judge of whether a family, instrument and tuning
+  combination is legal. Every path goes through it -- reading the state file,
+  the family chips, both dropdowns -- so a state the three controls cannot
+  render is unreachable by clicking. Do not let a caller assign the three
+  properties directly.
+- A tuning reference is a transform (`shift`, `drop`, `voicing`) over an
+  instrument's strings, never a second table of note names. Adding half-step
+  down to a new instrument must stay a zero-row change.
 - Concert pitch is the `CONCERT_A_HZ` constant, not a parameter. An adjustable
   reference existed and was removed; do not reintroduce it as a dead argument
   that no caller passes.
 - `tests/tunings.test.mjs` covers that file and runs under plain node with
   nothing installed. `make check` runs it, via `make test`, which also
   `node --check`s every module -- qmllint never opens a `.js` file, so without
-  that a wrong preset or an unparseable `Tunings.js` passes the whole gate.
+  that a wrong string table or an unparseable `Tunings.js` passes the whole gate.
 - `Tunings.js` is loaded by QML and by node both, so it stays CommonJS-shaped
   and must never gain a `.pragma library` line, which node rejects as a syntax
   error.
@@ -61,9 +70,21 @@ installable.
   detector's contract is `hz`; its own naming exists for the terminal
   diagnostics and must not learn about tunings.
 
+## Panel chrome
+
+- Build from `qs.Ui`. The one local component is `PitchDropdown.qml`, which
+  exists because the kit's `Dropdown` sizes its popup's outer box and so clips
+  the list by its own padding. Read the `Panel chrome` section of
+  `docs/design.md` before touching either.
+- A plugin file that uses `BorderSurface` must `import qs.Ui` explicitly.
+  `qmllint` resolves it through `-I` and passes; the shell then fails at runtime
+  with `BorderSurface is not a type`, which `make check` cannot catch.
+- No hex colour literals in QML. Everything comes from `Color`, `Style` or the
+  bar's own foreground, so a theme switch carries the panel with it.
+
 ## State
 
-The chosen input and tuning live in
+The chosen input, family, instrument and tuning live in
 `~/.config/omarchy-pitchfork/settings.json`. Never store state under
 `~/.config/omarchy/plugins/`: `make sync` rsyncs that directory with
 `--delete`.

@@ -7,6 +7,11 @@ import qs.Commons
 import qs.Ui
 
 Panel {
+    // The single writer for the three tuning properties. Every caller goes
+    // through Tunings.normalize first, so a combination that does not exist --
+    // DADGAD on a bass, an instrument under chromatic -- cannot be reached by
+    // clicking, only corrected.
+
     id: root
 
     // Everything the panel shows derives from these three. The helper is the
@@ -33,28 +38,29 @@ Panel {
     // Opacity is the only thing that separates a held reading from a live one,
     // so everything the reading drives carries it.
     readonly property real readingOpacity: root.holding ? 0.45 : 1
-    property string selectedTuning: "chromatic"
-    // Which of the current tuning's targets have been played in tune since the
-    // panel opened. Assigned rather than mutated in place, because QML only
-    // notifies a var property on assignment.
+    // -- what is being tuned ------------------------------------------------
+    // Three stored values rather than one preset id. The family is the big
+    // toggle, the instrument is the string set, and the tuning is what is done
+    // to that set; Tunings.js owns which combinations exist. Chromatic is a
+    // family with neither of the other two, so both rows below it disappear.
+    property string selectedFamily: Tunings.DEFAULT_FAMILY
+    // Empty while the family has no instruments to offer, which is chromatic.
+    property string selectedInstrument: ""
+    property string selectedTuning: ""
+    // Which of the current strings have been played in tune since the panel
+    // opened. Assigned rather than mutated in place, because QML only notifies
+    // a var property on assignment.
     property var checkedTargets: []
-    readonly property var tuning: Tunings.byId(root.selectedTuning)
-    // Chromatic is first in Tunings.list and stays first here, so the tuning
-    // that checks nothing off is the one a reader lands on.
-    readonly property var tuningOptions: {
-        var options = [];
-        for (var index = 0; index < Tunings.list.length; index++) {
-            options.push({
-                "value": Tunings.list[index].id,
-                "label": Tunings.list[index].label
-            });
-        }
-        return options;
-    }
+    readonly property var targets: Tunings.stringsFor(root.selectedInstrument, root.selectedTuning)
+    readonly property var familyOptions: Tunings.familyOptions()
+    readonly property var instrumentOptions: Tunings.instrumentOptions(root.selectedFamily)
+    // Both empty under chromatic: no instrument to pick, and so no reference
+    // for one. The rows are hidden rather than shown empty.
+    readonly property var tuningOptions: Tunings.tuningOptions(root.selectedInstrument)
     // Tunings.js owns every pitch calculation the panel makes. One
-    // implementation is the point: a readout and a target list that derive the
+    // implementation is the point: a readout and a string list that derive the
     // same note two different ways will eventually disagree about it.
-    readonly property var reading: Tunings.resolve(root.displayHz, root.tuning)
+    readonly property var reading: Tunings.resolve(root.displayHz, root.targets)
     readonly property string noteLabel: root.reading ? root.reading.name : "--"
     // Left unrounded for the needle, which wants the fraction; only the text
     // beneath it rounds.
@@ -69,7 +75,7 @@ Panel {
     // opacity to dim, so an accent held after the note died would claim a
     // string is in tune when nothing is sounding.
     readonly property bool inTune: root.detectedHz > 0 && root.readingInTune
-    // The target the settle timer is counting for, or -1 when nothing is being
+    // The string the settle timer is counting for, or -1 when nothing is being
     // held steady. inTune excludes a held reading, so the strip records that a
     // string was played in tune rather than that its last value is still up.
     readonly property int settlingIndex: root.inTune && root.targetIndex >= 0 ? root.targetIndex : -1
@@ -232,17 +238,42 @@ Panel {
         root.restartDetector();
     }
 
-    // Neither the tuning nor the reference reaches the detector: pitch is
-    // measured in hertz and only interpreted here, so changing either one
-    // must not interrupt capture.
-    function selectTuning(id) {
-        var next = Tunings.byId(id).id;
-        if (next === root.selectedTuning)
+    // None of this reaches the detector: pitch is measured in hertz and only
+    // interpreted here, so changing what is being tuned must never interrupt
+    // capture.
+    function applySelection(next) {
+        if (next.family === root.selectedFamily && next.instrument === root.selectedInstrument && next.tuning === root.selectedTuning)
             return ;
 
-        root.selectedTuning = next;
+        root.selectedFamily = next.family;
+        root.selectedInstrument = next.instrument;
+        root.selectedTuning = next.tuning;
         root.beginFreshPass();
         root.persistSettings();
+    }
+
+    function selectFamily(id) {
+        root.applySelection(Tunings.normalize({
+            "family": id,
+            "instrument": root.selectedInstrument,
+            "tuning": root.selectedTuning
+        }));
+    }
+
+    function selectInstrument(id) {
+        root.applySelection(Tunings.normalize({
+            "family": root.selectedFamily,
+            "instrument": id,
+            "tuning": root.selectedTuning
+        }));
+    }
+
+    function selectTuning(id) {
+        root.applySelection(Tunings.normalize({
+            "family": root.selectedFamily,
+            "instrument": root.selectedInstrument,
+            "tuning": id
+        }));
     }
 
     // Dropping running and raising it again in one block coalesces into no
@@ -259,6 +290,8 @@ Panel {
     function persistSettings() {
         stateFile.setText(JSON.stringify({
             "target": root.selectedTarget,
+            "family": root.selectedFamily,
+            "instrument": root.selectedInstrument,
             "tuning": root.selectedTuning
         }, null, 2) + "\n");
     }
@@ -267,16 +300,22 @@ Panel {
     // helpers, which would persist the file back and restart the detector
     // while it is still being read.
     function loadSettings(raw) {
+        var stored = {
+        };
         try {
-            var stored = JSON.parse(String(raw || "{}"));
-            root.selectedTarget = String(stored.target || "");
-            // Tunings.byId falls back to chromatic, so an id from an older
-            // version cannot leave the panel without a tuning.
-            root.selectedTuning = Tunings.byId(stored.tuning).id;
+            stored = JSON.parse(String(raw || "{}"));
         } catch (parseError) {
-            root.selectedTarget = "";
-            root.selectedTuning = "chromatic";
+            stored = {
+            };
         }
+        root.selectedTarget = String((stored && stored.target) || "");
+        // Tunings.normalize always answers with a combination that exists, so
+        // a record from an older version -- which stored one flat preset id --
+        // or a hand-edited file cannot leave the panel without an instrument.
+        var selection = Tunings.normalize(stored);
+        root.selectedFamily = selection.family;
+        root.selectedInstrument = selection.instrument;
+        root.selectedTuning = selection.tuning;
     }
 
     function markTarget(index) {
@@ -293,10 +332,11 @@ Panel {
     // A fresh pass over the strings. Clearing the marks alone is not enough:
     // the settle timer may already be part-way toward crediting a string, and
     // onSettlingIndexChanged cannot see an event that leaves the index
-    // numerically unchanged -- switching Guitar standard to Drop D keeps
-    // index 1 on A2. Restarting here makes the dwell start over, so a string
-    // is only ever credited for time held under the tuning and reference now
-    // in force.
+    // numerically unchanged -- switching a 6-string guitar to Drop D keeps
+    // index 1 on A2, and switching to a 4-string bass keeps every index in
+    // range. Restarting here makes the dwell start over, so a string is only
+    // ever credited for time held under the instrument and tuning now in
+    // force.
     function beginFreshPass() {
         root.clearTargets();
         if (root.settlingIndex >= 0)
@@ -409,7 +449,7 @@ Panel {
         printErrors: false
         onLoaded: root.loadSettings(text())
         // Absent on first run, which is not a failure: no stored settings mean
-        // the PipeWire default input and chromatic.
+        // the PipeWire default input and chromatic, which asks nothing.
         onLoadFailed: root.loadSettings("{}")
     }
 
@@ -430,9 +470,9 @@ Panel {
             id: keyCatcher
 
             anchors.fill: parent
-            // Three controls can own the keyboard, and any of them would have
-            // j/k and the digits double-driving the panel cursor.
-            blocked: inputDropdown.popupOpen || tuningDropdown.popupOpen
+            // Any open popup owns the keyboard, and each of the three would
+            // have j/k and the digits double-driving the panel cursor.
+            blocked: instrumentDropdown.popupOpen || tuningDropdown.popupOpen || inputDropdown.popupOpen
             onCloseRequested: root.close()
             onTabRequested: function(direction) {
                 root.switchPanel(direction);
@@ -442,7 +482,7 @@ Panel {
                 id: content
 
                 width: parent.width
-                spacing: Style.space(8)
+                spacing: Style.space(10)
 
                 Text {
                     width: parent.width
@@ -454,64 +494,191 @@ Panel {
                     wrapMode: Text.WordWrap
                 }
 
-                Text {
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.noteLabel
-                    color: root.readingInTune ? Color.accent : root.barForeground
-                    opacity: root.readingOpacity
-                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                    font.pixelSize: Style.font.subtitle * 2
-                    font.bold: true
-                }
-
-                // Cents meter. The needle spans -50..+50 cents, which is the
-                // full distance to the neighbouring semitone in either
-                // direction, so a reading can never leave the track.
+                // The reading, as one surface. Being in tune tints the whole
+                // card rather than only the note text: a colour change inside
+                // a wall of text is something the player has to look for,
+                // which is the opposite of what a tuner is for while both
+                // hands are on the instrument.
                 Rectangle {
-                    id: meter
+                    id: readingCard
 
                     width: parent.width
-                    height: Style.space(18)
-                    radius: Style.cornerRadius
-                    color: Util.alpha(root.barForeground, 0.08)
+                    height: readingBody.implicitHeight + Style.space(14) * 2
+                    radius: Style.cornerRadius * 2
+                    color: root.readingInTune ? Util.alpha(Color.accent, 0.16) : Util.alpha(root.barForeground, 0.06)
+                    border.width: root.readingInTune ? Math.max(1, Style.normalBorderWidth) : 0
+                    border.color: Util.alpha(Color.accent, 0.55)
 
-                    Rectangle {
-                        width: 1
-                        height: parent.height
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        color: Util.alpha(root.barForeground, 0.5)
-                    }
+                    Column {
+                        id: readingBody
 
-                    Rectangle {
-                        width: Style.space(3)
-                        height: parent.height
-                        radius: width / 2
-                        visible: root.displayHz > 0
-                        color: root.readingInTune ? Color.accent : Color.urgent
-                        opacity: root.readingOpacity
-                        x: Math.max(0, Math.min(meter.width - width, (meter.width - width) * (Math.max(-50, Math.min(50, root.centsExact)) + 50) / 100))
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.leftMargin: Style.space(14)
+                        anchors.rightMargin: Style.space(14)
+                        spacing: Style.space(8)
 
-                        Behavior on x {
-                            NumberAnimation {
-                                duration: 90
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: root.noteLabel
+                            color: root.readingInTune ? Color.accent : root.barForeground
+                            opacity: root.readingOpacity
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Math.round(Style.font.subtitle * 2.2)
+                            font.bold: true
+                        }
+
+                        // Cents meter. The needle spans -50..+50 cents, which
+                        // is the full distance to the neighbouring semitone in
+                        // either direction, so a reading can never leave the
+                        // track. The band at the centre is the +/-5 cents that
+                        // counts as in tune, drawn to scale, so the player can
+                        // see how much room the tolerance actually is.
+                        Rectangle {
+                            id: meter
+
+                            width: parent.width
+                            height: Style.space(22)
+                            radius: Style.cornerRadius
+                            color: Util.alpha(root.barForeground, 0.1)
+
+                            Rectangle {
+                                width: Math.max(2, meter.width * 0.1)
+                                height: parent.height
+                                radius: parent.radius
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                color: root.readingInTune ? Util.alpha(Color.accent, 0.3) : Util.alpha(root.barForeground, 0.12)
                             }
 
+                            Rectangle {
+                                width: 1
+                                height: parent.height
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                color: Util.alpha(root.barForeground, 0.45)
+                            }
+
+                            // Which way the peg has to turn, which the sign on
+                            // the cents line states but does not show.
+                            Text {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: Style.space(6)
+                                text: "♭"
+                                color: root.barForeground
+                                opacity: 0.4
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.caption
+                            }
+
+                            Text {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.rightMargin: Style.space(6)
+                                text: "♯"
+                                color: root.barForeground
+                                opacity: 0.4
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.caption
+                            }
+
+                            Rectangle {
+                                width: Style.space(3)
+                                height: parent.height
+                                radius: width / 2
+                                visible: root.displayHz > 0
+                                color: root.readingInTune ? Color.accent : Color.urgent
+                                opacity: root.readingOpacity
+                                x: Math.max(0, Math.min(meter.width - width, (meter.width - width) * (Math.max(-50, Math.min(50, root.centsExact)) + 50) / 100))
+
+                                Behavior on x {
+                                    NumberAnimation {
+                                        duration: 90
+                                    }
+
+                                }
+
+                            }
+
+                        }
+
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: root.displayHz > 0 ? (root.cents > 0 ? "+" : "") + root.cents + " cents  ·  " + root.displayHz.toFixed(2) + " Hz" : "No pitch detected"
+                            color: root.barForeground
+                            opacity: root.readingOpacity * 0.85
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                            wrapMode: Text.WordWrap
+                        }
+
+                    }
+
+                    Behavior on color {
+                        ColorAnimation {
+                            duration: 140
                         }
 
                     }
 
                 }
 
-                Text {
+                // The strings of the current instrument in order, filled in as
+                // each is played in tune. Absent for chromatic, which has no
+                // strings to work through and so nothing to report progress
+                // against.
+                Row {
+                    id: targetStrip
+
                     width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.displayHz > 0 ? (root.cents > 0 ? "+" : "") + root.cents + " cents  ·  " + root.displayHz.toFixed(2) + " Hz" : "No pitch detected"
-                    color: root.barForeground
-                    opacity: root.readingOpacity
-                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                    font.pixelSize: Style.font.body
-                    wrapMode: Text.WordWrap
+                    spacing: Style.space(4)
+                    visible: root.targets.length > 0
+
+                    Repeater {
+                        model: root.targets
+
+                        Rectangle {
+                            id: pill
+
+                            required property int index
+                            required property var modelData
+                            // Played in tune and held there earlier in this
+                            // session.
+                            readonly property bool checked: root.checkedTargets.indexOf(pill.index) !== -1
+                            // The string the reading is closest to right now.
+                            readonly property bool current: root.targetIndex === pill.index && root.displayHz > 0
+                            readonly property bool live: pill.current && root.readingInTune
+
+                            width: (targetStrip.width - targetStrip.spacing * Math.max(0, root.targets.length - 1)) / Math.max(1, root.targets.length)
+                            height: Style.space(26)
+                            radius: Style.cornerRadius
+                            color: pill.live ? Util.alpha(Color.accent, 0.34) : (pill.checked ? Util.alpha(Color.accent, 0.14) : (pill.current ? Util.alpha(root.barForeground, 0.14) : Util.alpha(root.barForeground, 0.05)))
+                            border.width: pill.current ? Math.max(1, Style.normalBorderWidth) : 0
+                            border.color: pill.live ? Util.alpha(Color.accent, 0.6) : Util.alpha(root.barForeground, 0.35)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: String(pill.modelData)
+                                color: (pill.live || pill.checked) ? Color.accent : root.barForeground
+                                opacity: (pill.live || pill.checked || pill.current) ? 1 : 0.5
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                font.bold: pill.live
+                            }
+
+                            Behavior on color {
+                                ColorAnimation {
+                                    duration: 120
+                                }
+
+                            }
+
+                        }
+
+                    }
+
                 }
 
                 // Input level. Without it, a silent panel is ambiguous: no
@@ -560,6 +727,75 @@ Panel {
                     color: Util.alpha(root.barForeground, 0.15)
                 }
 
+                // What is in the player's hands, before what is done to it.
+                // Three chips of equal width rather than a fourth dropdown:
+                // the family decides which instruments and which tunings the
+                // two rows below can even offer, so it is the one choice that
+                // has to be visible without opening anything.
+                Row {
+                    id: familyToggle
+
+                    width: parent.width
+                    spacing: Style.space(6)
+
+                    Repeater {
+                        model: root.familyOptions
+
+                        Button {
+                            required property var modelData
+
+                            width: (familyToggle.width - familyToggle.spacing * Math.max(0, root.familyOptions.length - 1)) / Math.max(1, root.familyOptions.length)
+                            text: String(modelData.label)
+                            selected: String(modelData.value) === root.selectedFamily
+                            bordered: true
+                            verticalPadding: Style.space(8)
+                            foreground: root.barForeground
+                            accent: Color.accent
+                            fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                            fontSize: Style.font.body
+                            onClicked: root.selectFamily(String(modelData.value))
+                        }
+
+                    }
+
+                }
+
+                PitchDropdown {
+                    id: instrumentDropdown
+
+                    width: parent.width
+                    // Chromatic has no instruments, and the row it would sit
+                    // in is the one thing a chromatic tuner does not need.
+                    visible: root.instrumentOptions.length > 0
+                    label: "Instrument"
+                    fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                    options: root.instrumentOptions
+                    value: root.selectedInstrument
+                    onChanged: function(selected) {
+                        root.selectInstrument(selected);
+                    }
+                }
+
+                PitchDropdown {
+                    id: tuningDropdown
+
+                    width: parent.width
+                    visible: root.tuningOptions.length > 0
+                    label: "Tuning"
+                    fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+                    options: root.tuningOptions
+                    value: root.selectedTuning
+                    onChanged: function(selected) {
+                        root.selectTuning(selected);
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: Util.alpha(root.barForeground, 0.15)
+                }
+
                 Text {
                     width: parent.width
                     visible: !root.selectionAvailable
@@ -570,52 +806,7 @@ Panel {
                     wrapMode: Text.WordWrap
                 }
 
-                Dropdown {
-                    id: tuningDropdown
-
-                    width: parent.width
-                    label: "Tuning"
-                    fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
-                    options: root.tuningOptions
-                    value: root.selectedTuning
-                    onChanged: function(selected) {
-                        root.selectTuning(selected);
-                    }
-                }
-
-                // The tuning's strings in order, checked off as each is played
-                // in tune. Absent for chromatic, which has no strings to work
-                // through and so nothing to report progress against.
-                Row {
-                    id: targetStrip
-
-                    width: parent.width
-                    visible: root.tuning.targets.length > 0
-
-                    Repeater {
-                        model: root.tuning.targets
-
-                        Text {
-                            id: target
-
-                            required property int index
-                            required property var modelData
-                            readonly property bool checked: root.checkedTargets.indexOf(target.index) !== -1
-
-                            width: targetStrip.width / Math.max(1, root.tuning.targets.length)
-                            horizontalAlignment: Text.AlignHCenter
-                            text: String(target.modelData)
-                            color: target.checked ? Color.accent : root.barForeground
-                            opacity: target.checked ? 1 : 0.45
-                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                            font.pixelSize: Style.font.body
-                        }
-
-                    }
-
-                }
-
-                Dropdown {
+                PitchDropdown {
                     id: inputDropdown
 
                     width: parent.width

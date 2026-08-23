@@ -5,6 +5,9 @@ for a guitar or bass, read from a PipeWire input.
 
 ![The Pitchfork panel: a bass low E in tune at 41.23 Hz, +1 cent](docs/pitchfork.png)
 
+<!-- The screenshot predates the Chromatic/Guitar/Bass toggle and needs
+retaking. -->
+
 ## Install
 
 ```
@@ -16,14 +19,18 @@ on a stock Omarchy system.
 
 ## Use
 
-Click the tuning fork in the bar. Pick an input, pick a tuning, play a note.
+Click the tuning fork in the bar, pick **Chromatic**, **Guitar** or **Bass**,
+and play a note.
 
-- **Chromatic** names the nearest of the twelve semitones.
-- Any other tuning names the nearest of *its own strings*, so a string a whole
-  tone flat still reads as the string you meant rather than as its neighbour.
-  Those strings sit under the meter and light up as each is played in tune.
-- The fork in the bar turns the accent colour while the note is in tune, so it
-  reads at a glance with the panel closed.
+- **Chromatic** names the nearest of the twelve semitones, and asks nothing else.
+- **Guitar** and **Bass** add two rows: the instrument (6- or 7-string guitar,
+  4-, 5- or 6-string bass) and the tuning applied to it (standard, drop,
+  half- or full-step down, DADGAD). The readout then names the nearest of *that
+  instrument's own strings*, so a string a whole tone flat still reads as the
+  string you meant rather than as its neighbour. The strings sit under the meter
+  and fill in as each is played in tune.
+- In tune, the whole readout turns the accent colour — and so does the fork in
+  the bar, so it reads at a glance with the panel closed.
 
 A laptop's internal microphone is a poor input for this. Its noise floor is high
 enough that a quietly played instrument never becomes the most periodic thing in
