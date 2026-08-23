@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-required_commands=(omarchy omarchy-shell qs qmllint qmlformat jq make rsync inotifywait python3 pw-cat)
+required_commands=(omarchy omarchy-shell qs qmllint qmlformat jq make rsync inotifywait python3 pw-cat node)
 missing=()
 
 for command_name in "${required_commands[@]}"; do

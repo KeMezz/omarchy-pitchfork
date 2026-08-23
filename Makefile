@@ -5,17 +5,19 @@ PLUGIN_ID := $(shell jq -r '.id' manifest.json)
 PLUGIN_ROOT ?= $(HOME)/.config/omarchy/plugins
 PLUGIN_DIR ?= $(PLUGIN_ROOT)/$(PLUGIN_ID)
 QML_FILES := $(sort $(wildcard *.qml) $(wildcard */*.qml))
+JS_FILES := $(sort $(wildcard *.js))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor check validate lint format install-dev sync enable disable status summon hide logs watch uninstall-dev
+.PHONY: help doctor check validate lint test format install-dev sync enable disable status summon hide logs watch uninstall-dev
 
 help:
 	@printf '%s\n' \
 	  'Omarchy Tuner plugin' \
 	  '' \
 	  '  make doctor       Check the local toolchain and shell status' \
-	  '  make check        Validate manifest and lint QML' \
+	  '  make check        Validate manifest, lint QML, run JS tests' \
+	  '  make test         Run the pitch maths tests' \
 	  '  make format       Format all QML files in place' \
 	  '  make install-dev  Copy, discover, and enable the plugin' \
 	  '  make sync         Validate and copy changes into Omarchy' \
@@ -29,13 +31,19 @@ help:
 doctor:
 	@./scripts/doctor.sh
 
-check: validate lint
+check: validate lint test
 
 validate:
 	@./scripts/validate-plugin.sh
 
 lint:
 	qmllint -I "$(OMARCHY_PATH)/shell" $(QML_FILES)
+
+# qmllint never opens a .js file, so without this a wrong tuning table -- or a
+# Tunings.js that does not parse at all -- passes the whole verification gate.
+test:
+	@for file in $(JS_FILES); do node --check "$$file" || exit 1; done
+	@node tests/tunings.test.mjs
 
 format:
 	qmlformat --inplace $(QML_FILES)

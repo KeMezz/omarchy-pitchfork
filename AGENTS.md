@@ -14,7 +14,8 @@ installable.
 ## Workflow
 
 - Keep `manifest.json` at the repository root.
-- Run `make check` after changing the manifest, QML, or JavaScript.
+- Run `make check` after changing the manifest, QML, or JavaScript, and
+  `node tests/tunings.test.mjs` after changing `Tunings.js`.
 - Run `make sync` to copy a validated change into the local Omarchy install.
 - After a **QML** change, `make sync` is not enough: run `omarchy-restart-shell`.
   This Omarchy build has no hot reload for local plugin components, so the
@@ -40,11 +41,29 @@ installable.
 - Read `README.md` before changing the detector; the line protocol between the
   detector and `Panel.qml` is the contract that keeps the two replaceable.
 
+## Pitch mathematics
+
+- Every pitch calculation the panel makes lives in `Tunings.js`: the preset
+  list, note-name parsing and spelling, the frequency of a target under a given
+  A4 reference, and the target a reading resolves to. Two implementations of
+  the same arithmetic will eventually disagree about a note, so the QML keeps
+  none of its own.
+- `tests/tunings.test.mjs` covers that file and runs under plain node with
+  nothing installed. A change to `Tunings.js` has to leave
+  `node tests/tunings.test.mjs` green; `make check` does not run it.
+- `Tunings.js` is loaded by QML and by node both, so it stays CommonJS-shaped
+  and must never gain a `.pragma library` line, which node rejects as a syntax
+  error.
+- The note naming in `scripts/pitch-detect.py` is deliberately separate and
+  fixed at A4 = 440. The detector's contract is `hz`; its own naming exists for
+  the terminal diagnostics and must not learn about tunings or the reference.
+
 ## State
 
-The chosen input lives in `~/.config/omarchy-tuner/input.json`. Never store
-state under `~/.config/omarchy/plugins/`: `make sync` rsyncs that directory
-with `--delete`.
+The chosen input, tuning, and A4 reference live in
+`~/.config/omarchy-tuner/settings.json`. Never store state under
+`~/.config/omarchy/plugins/`: `make sync` rsyncs that directory with
+`--delete`.
 
 ## Toolchain
 

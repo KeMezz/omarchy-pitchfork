@@ -8,19 +8,80 @@ Plugin id: `dev.hyeongjin.tuner`
 ## Status
 
 Working. Audio capture and pitch detection are implemented; the panel shows the
-note, the cents offset, the frequency, the input level, and a list of inputs to
-capture from. The bar widget is a drawn tuning fork that turns the accent colour
-while the note is in tune.
+note, the cents offset, the frequency, the input level, a tuning to measure
+against, and a list of inputs to capture from. The bar widget is a drawn tuning
+fork that turns the accent colour while the note is in tune.
+
+A tuning is chosen from a dropdown, and the strings of that tuning sit under the
+meter as a strip. A string lights up once it has been played in tune for half a
+second, which is a stop the player made rather than a value a peg swept through
+on the way somewhere else. The strip starts empty again whenever the panel opens
+or the tuning changes, because either one begins a fresh pass over the strings.
+Chromatic has no strings and so shows no strip.
+
+The A4 reference is adjustable from 415 to 466 Hz, in the same row as the
+tuning. Neither the tuning nor the reference reaches the detector: both are
+interpretation of a frequency that was already measured in hertz, so changing
+either one leaves capture running.
+
+A reading outlives the note that produced it by 1.5 seconds, dimmed for as long
+as it is held. A plucked string dies while the player is still looking at the
+fretboard, and a readout that blanks the moment the note decays is one they
+never get to read. A live reading always wins, so the hold can only extend a
+stale value and never delays a fresh one. The bar widget's fork is deliberately
+left out of it: the fork has no dimmed state, and an accent colour held after
+the note died would claim a string is in tune with nothing sounding.
 
 The panel offers the available PipeWire inputs in a collapsed dropdown and
-remembers the choice in
-`~/.config/omarchy-tuner/input.json`. "System default" is the default and stays
-first in the list, so an unplugged interface is never a dead end.
+remembers the input, the tuning, and the reference in
+`~/.config/omarchy-tuner/settings.json`. "System default" is the default input
+and stays first in the list, so an unplugged interface is never a dead end.
 
 Note that `pw-cat` does not fail on an unknown `--target`: it falls back to the
 default source silently, so a stale node name looks like a working tuner
 listening to the wrong input. The picker says so when the stored choice is not
 among the connected sources.
+
+## Tuning model
+
+`Tunings.js` holds the preset list and every pitch calculation the panel makes.
+Targets are stored as note names — guitar standard is
+`["E2", "A2", "D3", "G3", "B3", "E4"]` — rather than as frequencies, and that
+is what makes an adjustable reference pitch free. A target's frequency is
+derived from its name together with the current A4, so moving the reference
+moves every target by the same interval: there is no second table to keep in
+step, and no preset left holding a 440 Hz number after the reference has moved.
+
+Resolution is to the nearest target rather than to the nearest semitone, which
+is the reason to choose a tuning at all. A string a whole tone flat still
+reports the string the player meant, so the direction to turn the peg is never
+ambiguous. Chromatic would call the same pitch a D2 and say nothing about the E
+being tuned.
+
+"Chromatic" is an entry in the tuning list rather than a separate mode. It is
+the first preset and its target list is empty, so it falls out of the same code
+path everything else uses: a nearest-target search over no targets is the
+nearest semitone, and the target strip has nothing to draw. One dropdown
+therefore covers the whole feature. A mode toggle would be a second control
+competing for the width of a bar popup, and the panel does not have the room to
+spend on it.
+
+The state file was `input.json` and is now `settings.json`, because it carries
+the tuning and the reference alongside the input. **Nothing migrates the old
+name, and that does lose something**: remembering a *non-default* input was the
+whole purpose of `input.json`, so anyone who had picked an interface is silently
+returned to the PipeWire default. That failure is quiet in the worst way —
+`pw-cat` does not complain about the substitution, so it presents as a tuner
+that simply stopped finding notes. Pick the input again after upgrading, and
+delete the stale `input.json`.
+
+No migration code exists because this plugin has one install, whose stored value
+was the default. Code that can never run is worse than a documented step; if the
+plugin is ever published with users on the old name, the migration goes in
+before the rename ships.
+
+A missing `settings.json` is read as first-run defaults — the PipeWire default
+input, chromatic, and A4 = 440.
 
 ## Development
 
@@ -33,6 +94,17 @@ make watch        # sync automatically whenever source changes
 make summon       # open the tuner panel
 make logs         # tail recent Omarchy shell logs
 ```
+
+The pitch arithmetic in `Tunings.js` has its own tests, which run under plain
+node — the plugin has no package manifest and must not gain one, so nothing
+that needs installing can be a test dependency:
+
+```
+node tests/tunings.test.mjs
+```
+
+`make check` does not run them; it validates the manifest and lints QML. A
+change to `Tunings.js` needs both.
 
 The detector runs standalone, which is the fastest way to work on it:
 
@@ -55,6 +127,12 @@ separates the two failures that look identical from the panel:
 A moving level bar means capture works. Aperiodicity is what the rejection
 threshold actually tests, so a note that will not register shows up as a number
 over the limit rather than as silence.
+
+The note column in that output is chromatic at A4 = 440 and stays that way.
+The detector is a signal diagnostic rather than a tuner: it reports `hz`, and
+the naming it does for the terminal is there to make a reading legible, not to
+agree with the panel. With a tuning chosen or the reference moved, the two name
+the same pitch differently, and that is expected.
 
 `Makefile` and `scripts/*.sh` are a copy of the shared playground toolchain
 rather than a shared dependency, so a fix in one repository has to be ported to
@@ -178,6 +256,7 @@ Everything here is checked against a stock Omarchy 4.0 system.
 | Dependency | Status on a stock system | Used for |
 | ---------- | ------------------------ | -------- |
 | `python3` ≥ 3.12 | Present (3.14)     | The pitch detector. |
+| `node` | Development only  | `make test`. Not needed to run the plugin. |
 | `pw-cat`   | Present, shipped by PipeWire | Capturing raw PCM from the input. |
 
 The 3.12 floor is `math.sumprod`, which is what makes a stdlib-only detector
@@ -201,7 +280,9 @@ rather than a convenience:
 The panel's Input dropdown is the shared `qs.Ui` `Dropdown`, so it matches every
 other select in the shell and keeps the panel short when it is closed. While its
 popup owns the keyboard, `PanelKeyCatcher.blocked` stops the panel's own cursor
-model from double-driving on j/k. Its options are built from `Pipewire.nodes`,
+model from double-driving on j/k. The tuning dropdown and the A4 field block it
+the same way, so any control added to the panel that takes the keyboard has to
+join that condition. Its options are built from `Pipewire.nodes`,
 filtered to real capture sources. It deliberately never reads `PwNode.properties`: that is invalid until
 a node is bound, and the built-in audio panel documents that reading it while
 capture streams appear can destabilise Quickshell's Pipewire service — and this

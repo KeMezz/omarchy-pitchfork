@@ -80,7 +80,7 @@ BarWidget {
             // The prongs stop exactly where the bridge starts. Letting them
             // overshoot it reads as a plug rather than a fork.
             readonly property real bridgeTop: fork.height / 2 + fork.unit * 0.06
-            readonly property real crownTop: fork.height / 2 - fork.unit * 0.40
+            readonly property real crownTop: fork.height / 2 - fork.unit * 0.4
 
             Rectangle {
                 x: fork.width / 2 - fork.spread - fork.prong / 2
@@ -115,7 +115,7 @@ BarWidget {
                 x: fork.width / 2 - fork.prong / 2
                 y: fork.bridgeTop
                 width: fork.prong
-                height: fork.height / 2 + fork.unit * 0.40 - fork.bridgeTop
+                height: fork.height / 2 + fork.unit * 0.4 - fork.bridgeTop
                 radius: fork.prong / 2
                 color: root.iconColor
             }
