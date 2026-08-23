@@ -2,7 +2,7 @@
 """Pitch detector for the Omarchy tuner plugin.
 
 Captures mono audio from a PipeWire input through `pw-cat` and writes one
-pitch reading per line to stdout. Standard library only; see README.md for the
+pitch reading per line to stdout. Standard library only; see docs/design.md for the
 line protocol and why there is no numpy dependency.
 
 Detection is YIN: a cumulative-mean-normalized difference function picks the

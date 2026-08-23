@@ -38,7 +38,7 @@ installable.
   side treats it as a line-oriented subprocess and nothing more.
 - The detector runs only while the panel is open. Never hold a capture stream
   open in the background.
-- Read `README.md` before changing the detector; the line protocol between the
+- Read `docs/design.md` before changing the detector; the line protocol between the
   detector and `Panel.qml` is the contract that keeps the two replaceable.
 
 ## Pitch mathematics

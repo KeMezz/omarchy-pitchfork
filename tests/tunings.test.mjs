@@ -82,7 +82,7 @@ test("concert pitch is 440 and octaves are exact doublings", () => {
 // thing standing between a transposed table and a tuner that confidently names
 // the wrong string.
 //
-// The three anchors README.md states independently -- E2 at 82.41 Hz in the
+// The three anchors docs/design.md states independently -- E2 at 82.41 Hz in the
 // --meter sample, and the 30.87-329.63 Hz selftest range, which is exactly
 // B0 to E4 -- pin the octaves of the outer strings to the detector's own
 // measured output.

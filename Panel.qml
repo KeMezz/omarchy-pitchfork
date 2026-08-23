@@ -214,13 +214,12 @@ Panel {
         if (!node)
             return "Unknown";
 
-        var label = root.friendlyLabel(node.nickname || node.description || node.name || "Unknown");
-        // A monitor records what a sink is playing. Legitimate to tune from,
-        // but not what someone reaching for "my microphone" means.
-        if (String(node.name || "").indexOf(".monitor") !== -1)
-            label += " (monitor)";
-
-        return label;
+        // No monitor case to handle: PipeWire publishes no monitor nodes, so
+        // this list is capture devices only. The `<sink>.monitor` names that
+        // pactl reports -- and that pitch-detect.py --list-inputs therefore
+        // shows -- are a PulseAudio compatibility invention, not nodes
+        // Pipewire.nodes can return.
+        return root.friendlyLabel(node.nickname || node.description || node.name || "Unknown");
     }
 
     function selectTarget(name) {
