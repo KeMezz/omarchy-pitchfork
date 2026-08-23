@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "dev.hyeongjin.pitchfork",
+  "id": "io.github.kemezz.pitchfork",
   "name": "Pitchfork",
   "version": "0.1.0",
   "author": "Hyeongjin",
   "license": "MIT",
-  "description": "An instrument tuner for guitar and bass, reading pitch from a PipeWire input.",
+  "description": "A chromatic instrument tuner for guitar and bass. Reads pitch from any PipeWire audio input and shows the note, how many cents off it is, and which string you are tuning.",
   "kinds": [
     "bar-widget"
   ],

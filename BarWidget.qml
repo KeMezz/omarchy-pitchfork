@@ -47,7 +47,7 @@ BarWidget {
         panelLoader.item.hostWidget = root;
     }
 
-    moduleName: "dev.hyeongjin.pitchfork"
+    moduleName: "io.github.kemezz.pitchfork"
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
     onBarChanged: injectPanel()

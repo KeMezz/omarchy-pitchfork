@@ -44,6 +44,7 @@ rsync -a --delete \
   --exclude 'LICENSE' \
   --exclude 'Makefile' \
   --exclude 'README.md' \
+  --exclude 'preview.png' \
   --exclude 'docs/' \
   --exclude 'tests/' \
   --exclude '__pycache__/' \

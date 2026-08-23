@@ -360,7 +360,7 @@ Panel {
         root.detectorStopped = false;
     }
 
-    moduleName: "dev.hyeongjin.pitchfork"
+    moduleName: "io.github.kemezz.pitchfork"
     manageIpc: false
     // Opening the panel is the retry: it restarts the detector, so a stale
     // error from the previous run must not survive into the new one. The

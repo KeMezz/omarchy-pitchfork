@@ -2,7 +2,7 @@
 
 This repository is **Pitchfork**, an Omarchy Quattro plugin: an instrument tuner
 for guitar and bass. Treat the repository root as the plugin source and
-`~/.config/omarchy/plugins/dev.hyeongjin.pitchfork/` only as a generated
+`~/.config/omarchy/plugins/io.github.kemezz.pitchfork/` only as a generated
 development install.
 
 One plugin per repository is deliberate. `omarchy plugin add <git-url>` clones
@@ -112,6 +112,33 @@ consequences:
   has already installed, and their update fails rather than degrading.
 - Anything committed to `main` is shipped. There is no separate release step to
   catch a mistake, and the diff the user is shown is the commit history.
+
+### The community marketplace
+
+Listed at https://omarchyplugins.com, whose registry is the
+`HANCORE-linux/omarchy-plugin-marketplace` repository. Submission and updates go
+through its issue forms; read its `SUBMISSION.md` before touching anything
+below.
+
+- **`manifest.json`'s `id` is permanent.** The marketplace uses it as the
+  listing identifier, and an id is never reusable once listed -- not even after
+  a retirement or a rename. `io.github.kemezz.pitchfork` is now fixed.
+- **`manifest.json`'s `description` is the site's search index.** The catalog
+  copies `name`, `description` and `author` straight out of the manifest
+  (`build-catalog.mjs`), and the site searches over exactly those plus the
+  publisher login, the id, the category and the tags. `category` and `tags` are
+  *derived from `kinds`* -- a `bar-widget` becomes `Widgets` and
+  `["bar-widget"]` -- so they cannot carry a search term. Shortening the
+  description therefore removes the only words a search can match; keep
+  `tuner`, `tuning`, `chromatic`, `guitar`, `bass`, `pitch` and `cents` in it.
+- A root `preview.png` (or `.jpg`/`.webp`/`.avif`) is what the site turns into
+  the card and detail images. `docs/` is not scanned for one.
+- The README must document **installation and removal**, and the repository
+  must carry a root license file. Both are validated, not advisory.
+- Publishing an update means opening a verification issue for a specific
+  40-character commit SHA. The listing keeps pointing at the previously approved
+  snapshot until a maintainer approves the new one, so pushing to `main` alone
+  does not update the listing.
 
 ## Agent skills
 

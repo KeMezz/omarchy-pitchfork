@@ -3,7 +3,7 @@
 An instrument tuner for the Omarchy Quattro bar. Note, cents, and input level
 for a guitar or bass, read from a PipeWire input.
 
-![The Pitchfork panel: a 4-string bass D string in tune at 73.48 Hz, +2 cents, with the low E and A already checked off](docs/pitchfork.png)
+![The Pitchfork panel: a 4-string bass D string in tune at 73.48 Hz, +2 cents, with the low E and A already checked off](preview.png)
 
 ## Install
 
@@ -12,7 +12,22 @@ omarchy plugin add https://github.com/KeMezz/omarchy-pitchfork.git --enable
 ```
 
 Needs `pw-cat` (ships with PipeWire) and `python3` 3.12 or newer, both present
-on a stock Omarchy system.
+on a stock Omarchy system. Nothing else is installed and nothing is compiled.
+
+## Update and remove
+
+```
+omarchy plugin update io.github.kemezz.pitchfork
+omarchy plugin remove io.github.kemezz.pitchfork
+```
+
+Removing deletes the plugin directory and takes the widget out of the bar. Your
+chosen input and instrument live in `~/.config/omarchy-pitchfork/`, outside the
+plugin directory, so delete that too for a clean uninstall:
+
+```
+rm -rf ~/.config/omarchy-pitchfork
+```
 
 ## Use
 
@@ -40,10 +55,14 @@ Plugins run unsandboxed inside the long-lived shell process, so:
 - It opens an audio input **only while the panel is open**. Audio is analysed a
   window at a time in memory and discarded — nothing is written to disk and
   nothing leaves the machine.
-- It spawns one child process, `pw-cat`, bound to the panel's lifetime even if
-  the shell kills the plugin outright.
+- While the panel is open it runs `python3 scripts/pitch-detect.py`, which in
+  turn runs `pw-cat` to read the input. Both are bound to the panel's lifetime
+  even if the shell kills the plugin outright. One `mkdir -p` creates
+  `~/.config/omarchy-pitchfork/` for the settings file.
 - No network. No `sudo`, no `pkexec`, no systemd units, no installer, no
-  bundled binaries.
+  bundled binaries, nothing downloaded or compiled at any point.
+- It writes exactly one file, `~/.config/omarchy-pitchfork/settings.json`, and
+  never touches your Omarchy configuration.
 
 ## Development
 
