@@ -38,6 +38,18 @@ installable.
   side treats it as a line-oriented subprocess and nothing more.
 - The detector runs only while the panel is open. Never hold a capture stream
   open in the background.
+- `die_with_parent` is what makes that promise keepable, and it must fail
+  closed. Quickshell can SIGKILL the detector, so `PR_SET_PDEATHSIG` is the
+  only thing that closes `pw-cat` on that path. Two rules follow, and both were
+  once wrong here:
+  - **Never swallow the `prctl` result.** If it fails there is no protection at
+    all, and a capture stream that cannot be guaranteed to close is worse than
+    a tuner reporting that it could not start.
+  - **Re-check `os.getppid()` after arming it.** The signal can only be armed
+    after the fork and fires on the parent's death *from then on*, so a parent
+    that died in between leaves a child that is reparented to init and holds
+    the input forever. The caller records its pid before forking for exactly
+    this comparison.
 - Read `docs/design.md` before changing the detector; the line protocol between the
   detector and `Panel.qml` is the contract that keeps the two replaceable.
 

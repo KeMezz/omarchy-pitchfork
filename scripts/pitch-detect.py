@@ -57,6 +57,9 @@ REJECT_ABOVE = 0.20
 DEFAULT_GATE = 0.004
 
 PR_SET_PDEATHSIG = 1
+# What the forked child exits with when it finds its parent already dead. Only
+# the kernel sees it -- the parent that would have read it is gone.
+EXIT_ORPHANED = 3
 
 
 class Detector:
@@ -264,17 +267,39 @@ def run_stream(stream, detector: Detector, window: int = WINDOW, hop: int = HOP,
         write(smoother.push(detector.analyze(frame)))
 
 
-def die_with_parent() -> None:
-    """Ask the kernel to kill this process's child when this process dies.
+def die_with_parent(expected_parent: int) -> None:
+    """Ask the kernel to kill this process when its parent dies.
 
-    Quickshell may SIGKILL the detector when the panel closes, in which case no
-    cleanup code of ours runs. Without this, pw-cat would survive as an open
-    capture stream with no UI attached.
+    Runs in the forked child, before exec. Quickshell may SIGKILL the detector
+    when the panel closes, in which case no cleanup code of ours runs, and
+    without this pw-cat would survive as an open capture stream with no UI
+    attached. So this is the mechanism that decides whether a microphone can
+    outlive the panel, and neither of its two failure modes may be swallowed.
+
+    If prctl fails there is no protection at all. Raising aborts the exec and
+    Popen reports it to the parent, which then reports it to the panel: no
+    capture at all is the right answer, because a capture stream we cannot
+    guarantee to close is worse than a tuner that says it could not start.
+
+    The second failure mode is a race, and it is the reason the parent is
+    re-checked below. PR_SET_PDEATHSIG can only be armed here, after the fork,
+    and it fires on the death of the parent *at the time it fires* -- so if the
+    detector died in the window between the fork and this call, the signal that
+    was just armed can never be delivered. The child would be reparented to
+    init and keep the input open forever. Comparing the current parent against
+    the pid the caller recorded before forking closes that window: either the
+    parent is still the process we armed against, or it is already gone and
+    this child must not exec at all.
     """
-    try:
-        ctypes.CDLL("libc.so.6", use_errno=True).prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-    except Exception:
-        pass
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    if libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM) != 0:
+        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
+
+    if os.getppid() != expected_parent:
+        # Nothing will ever signal this process, so leave before exec rather
+        # than opening a capture stream that cannot be closed. os._exit avoids
+        # running the parent's atexit handlers in this forked copy.
+        os._exit(EXIT_ORPHANED)
 
 
 def capture(target: str, rate: int) -> subprocess.Popen:
@@ -288,7 +313,13 @@ def capture(target: str, rate: int) -> subprocess.Popen:
     ]
     if target:
         command += ["--target", target]
-    return subprocess.Popen(command, stdout=subprocess.PIPE, preexec_fn=die_with_parent)
+    # Read in the parent: inside the child, getpid() is the child's own.
+    parent = os.getpid()
+    return subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        preexec_fn=lambda: die_with_parent(parent),
+    )
 
 
 def print_meter(reading: dict) -> None:
@@ -357,6 +388,13 @@ def run_capture(target: str, rate: int, gate: float) -> int:
     except FileNotFoundError:
         emit({"hz": 0.0, "confidence": 0.0, "level": 0.0, "source": "pw-cat",
               "error": "pw-cat not found; install pipewire-audio"})
+        return 1
+    except (OSError, subprocess.SubprocessError):
+        # die_with_parent refused to arm, so capture never started. Reported
+        # rather than retried: silently recording without the guarantee that
+        # the stream closes with the panel is the one outcome to avoid.
+        emit({"hz": 0.0, "confidence": 0.0, "level": 0.0, "source": "pw-cat",
+              "error": "could not guarantee pw-cat exits with the panel; not recording"})
         return 1
     try:
         status = run_stream(recorder.stdout, Detector(rate=rate, gate=gate))
