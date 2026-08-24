@@ -11,8 +11,9 @@ for a guitar or bass, read from a PipeWire input.
 omarchy plugin add https://github.com/KeMezz/omarchy-pitchfork.git --enable
 ```
 
-Needs `pw-cat` (ships with PipeWire) and `python3` 3.12 or newer, both present
-on a stock Omarchy system. Nothing else is installed and nothing is compiled.
+Runtime requires the Omarchy Quattro/Quickshell plugin host, `pw-cat` (shipped
+with PipeWire), and `python3` 3.12 or newer with `math.sumprod`. They are present
+on a stock Omarchy system; Pitchfork installs no packages and compiles nothing.
 
 ## Update and remove
 
@@ -28,6 +29,10 @@ plugin directory, so delete that too for a clean uninstall:
 ```
 rm -rf ~/.config/omarchy-pitchfork
 ```
+
+When upgrading from the earlier Omarchy Tuner/Pitchfork state layout, version
+0.2.1 imports the saved input and tuning into `settings.json` the first time the
+new file is absent. It keeps the legacy file as a recovery copy.
 
 ## Use
 
@@ -59,15 +64,22 @@ Plugins run unsandboxed inside the long-lived shell process, so:
   turn runs `pw-cat` to read the input. Both are bound to the panel's lifetime
   even if the shell kills the plugin outright. One `mkdir -p` creates
   `~/.config/omarchy-pitchfork/` for the settings file.
-- No network. No sudo, no pkexec, no systemd units, no installer, no bundled
-  binaries, nothing downloaded or compiled at any point.
-- It writes exactly one file, `~/.config/omarchy-pitchfork/settings.json`, and
-  never touches your Omarchy configuration.
+- Device names, saved input ids, and detector errors are always rendered as
+  plain text. The verification suite checks every QML `Text` element so those
+  strings cannot be interpreted as markup that loads a referenced resource.
+- Pitchfork initiates no network connection at runtime. The normal Omarchy
+  install and update commands access GitHub only to clone or fetch this source.
+- No sudo, no pkexec, no systemd units, no plugin-owned installer, no bundled
+  binaries, and no privileged action.
+- At runtime, Pitchfork's own code writes exactly one file,
+  `~/.config/omarchy-pitchfork/settings.json`; it does not write Omarchy's
+  configuration. Omarchy's install, enable, update, and remove commands manage
+  the plugin registration outside that runtime boundary.
 
 ## Development
 
 ```
-make check   # validate the manifest, lint QML, run the pitch tests
+make check   # validate, lint QML, and run every regression test
 make sync    # copy a validated change into the local Omarchy install
 make summon  # open the panel
 ```
@@ -77,12 +89,20 @@ reload for local plugin components, so a synced `.qml` sits on disk while the
 shell serves the copy it loaded at startup. The detector script does not need
 the restart.
 
+GitHub Actions runs the portable part of the gate on every push and pull
+request: manifest JSON and symlink checks, shell syntax, the `Text.PlainText`
+policy lint, and all Node/Python tests. Full `make check` remains the release
+gate because `omarchy plugin validate`, `qmllint`, and the `qs.Ui` imports come
+from a stock Omarchy installation and are not available on a generic Ubuntu
+runner.
+
 If no note appears, `scripts/pitch-detect.py --meter` shows what the detector
 actually hears — a moving level bar means capture works, and the aperiodicity
 figure says how close a rejected reading was to registering.
 
 [Design notes](docs/design.md) cover the detection algorithm, the detector's
-line protocol, the tuning model, and why there are no external dependencies.
+line protocol, the tuning model, and the complete runtime, diagnostic, and
+development/CI dependency inventory.
 
 ## License
 

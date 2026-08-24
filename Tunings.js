@@ -411,14 +411,28 @@ function stringsFor(instrumentId, tuningId) {
 //
 // The family leads, because it is the one choice the panel always shows: the
 // instrument and the reference are only asked about when the family has them.
+// The sole exception is the historical `instrument: "chromatic"` sentinel,
+// which was itself the old spelling of the family choice.
 function normalize(stored) {
     var raw = (stored && typeof stored === "object") ? stored : {};
     var instrument = instrumentById(raw.instrument);
     var family = familyById(raw.family);
 
+    // Chromatic was briefly stored as an instrument. That sentinel describes
+    // the whole mode and must win before a neighbouring pre-split tuning id is
+    // considered; otherwise a stale `bass5` or `dadgad` can migrate the record
+    // back into an instrument family.
+    if (asString(raw.instrument) === CHROMATIC_AS_INSTRUMENT)
+        family = familyById("chromatic");
+
     if (!family) {
         // The pre-split schema kept one flat preset id under `tuning`.
-        var legacy = legacyTunings[asString(raw.tuning)];
+        // Do not let Object.prototype names masquerade as entries. JSON can
+        // quite legitimately contain "__proto__", "constructor", or
+        // "toString", and indexing the ordinary object directly would return
+        // an inherited object/function instead of an absent preset.
+        var legacyKey = asString(raw.tuning);
+        var legacy = Object.prototype.hasOwnProperty.call(legacyTunings, legacyKey) ? legacyTunings[legacyKey] : null;
         if (legacy && !instrument)
             return {
                 family: legacy.family,
@@ -428,11 +442,6 @@ function normalize(stored) {
 
         family = instrument ? familyById(instrument.family) : familyById(DEFAULT_FAMILY);
     }
-
-    // A record that named chromatic as an instrument meant the chromatic
-    // family, whatever it stored beside it.
-    if (asString(raw.instrument) === CHROMATIC_AS_INSTRUMENT)
-        family = familyById("chromatic");
 
     var rows = instrumentOptions(family.id);
     if (rows.length === 0)

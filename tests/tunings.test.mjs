@@ -108,10 +108,9 @@ test("pitchClassOf drops the octave and normalises the spelling", () => {
 // them, so these literals are the only thing standing between a transposed
 // table and a tuner that confidently names the wrong string.
 //
-// The three anchors docs/design.md states independently -- E2 at 82.41 Hz in
-// the --meter sample, and the 30.87-329.63 Hz selftest range, which is exactly
-// B0 to E4 -- pin the octaves of the guitar and bass outer strings to the
-// detector's own measured output.
+// The named E2 guitar anchor in docs/design.md and the detector's complete
+// A0-to-E4 shipped-target range pin the octaves of the guitar and bass outer
+// strings independently of this table.
 const canonicalStrings = {
     guitar6: [["E2", 82.4069], ["A2", 110.0000], ["D3", 146.8324], ["G3", 195.9977], ["B3", 246.9417], ["E4", 329.6276]],
     guitar7: [["B1", 61.7354], ["E2", 82.4069], ["A2", 110.0000], ["D3", 146.8324], ["G3", 195.9977], ["B3", 246.9417], ["E4", 329.6276]],
@@ -313,12 +312,17 @@ test("normalize maps every pre-split preset id onto the two axes", () => {
 // Chromatic was briefly an instrument inside each family rather than a family
 // of its own, so a record can still name it that way.
 test("normalize reads chromatic-as-an-instrument as the chromatic family", () => {
-    for (const family of ["guitar", "bass", "other", undefined])
-        assert.deepEqual(Tunings.normalize({ family, instrument: "chromatic", tuning: "standard" }), {
-            family: "chromatic",
-            instrument: "",
-            tuning: ""
-        }, `family ${family}`);
+    for (const family of ["guitar", "bass", "other", undefined]) {
+        // Recognised legacy preset ids must not override the chromatic
+        // migration sentinel, regardless of what older fields sit beside it.
+        for (const tuning of ["standard", "bass5", "dadgad", "drop-d"]) {
+            assert.deepEqual(Tunings.normalize({ family, instrument: "chromatic", tuning }), {
+                family: "chromatic",
+                instrument: "",
+                tuning: ""
+            }, `family ${family}, tuning ${tuning}`);
+        }
+    }
 });
 
 test("normalize keeps a valid triple untouched", () => {
@@ -334,6 +338,12 @@ test("normalize falls back to a tunable default on anything it cannot read", () 
     const fallback = { family: "chromatic", instrument: "", tuning: "" };
     for (const stored of [undefined, null, {}, "", 7, { instrument: "no-such-instrument" }, { family: "nope" }])
         assert.deepEqual(Tunings.normalize(stored), fallback, `${JSON.stringify(stored)}`);
+});
+
+test("normalize does not treat Object.prototype names as legacy presets", () => {
+    const fallback = { family: "chromatic", instrument: "", tuning: "" };
+    for (const tuning of ["__proto__", "constructor", "toString", "valueOf", "hasOwnProperty"])
+        assert.deepEqual(Tunings.normalize({ tuning }), fallback, tuning);
 });
 
 test("normalize resets a reference the instrument cannot take", () => {

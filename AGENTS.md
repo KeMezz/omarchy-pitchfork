@@ -14,8 +14,9 @@ installable.
 ## Workflow
 
 - Keep `manifest.json` at the repository root.
-- Run `make check` after changing the manifest, QML, or JavaScript, and
-  `node tests/tunings.test.mjs` after changing `Tunings.js`.
+- Run `make check` after changing the manifest, QML, JavaScript, Python, or
+  validation workflow, and `node tests/tunings.test.mjs` after changing
+  `Tunings.js`.
 - Run `make sync` to copy a validated change into the local Omarchy install.
 - After a **QML** change, `make sync` is not enough: run `omarchy-restart-shell`.
   This Omarchy build has no hot reload for local plugin components, so the
@@ -99,9 +100,12 @@ installable.
   long-lived shell process. This panel renders strings it does not author:
   PipeWire device names and descriptions, the input id restored from disk, and
   the detector's own error output. `make lint` runs
-  `scripts/check-text-format.py` to enforce it on every `Text`, not only the
-  ones that carry outside data today, because which strings are external
-  changes with each edit.
+  `scripts/check-text-format.py` to enforce it as the first non-`id` member of
+  every `Text`, not only the ones that carry outside data today, because which
+  strings are external changes with each edit. Keeping that canonical position
+  is what lets the portable check fail closed without parsing embedded
+  JavaScript. Never reassign `textFormat` later; direct assignments and Binding
+  property names are rejected too, including from imported runtime JavaScript.
 
 ## State
 
@@ -125,6 +129,12 @@ the clone. So the gate for a release is that a **fresh clone** validates --
 notably with no symlink anywhere outside `.git`, which is why `CLAUDE.md` is
 gitignored rather than committed.
 
+The GitHub Actions workflow is deliberately a portable subset: it checks
+manifest JSON, tracked symlinks and shell syntax, then runs the PlainText policy
+lint and Node/Python tests. A generic Ubuntu runner has neither the Omarchy
+validator nor the `qs.Ui` import tree needed by `qmllint`, so a green workflow
+never replaces the fresh-clone `make check` release gate on Omarchy.
+
 `main` is the release channel. `omarchy plugin update` does `git fetch origin
 HEAD` and `merge --ff-only`, showing the user a diff before it merges. Two
 consequences:
@@ -147,11 +157,12 @@ below.
 - **`manifest.json`'s `description` is the site's search index.** The catalog
   copies `name`, `description` and `author` straight out of the manifest
   (`build-catalog.mjs`), and the site searches over exactly those plus the
-  publisher login, the id, the category and the tags. `category` and `tags` are
-  *derived from `kinds`* -- a `bar-widget` becomes `Widgets` and
-  `["bar-widget"]` -- so they cannot carry a search term. Shortening the
-  description therefore removes the only words a search can match; keep
-  `tuner`, `tuning`, `chromatic`, `guitar`, `bass`, `pitch` and `cents` in it.
+  publisher login, the id, the category and the tags. The submission chooses
+  one category and one to three tags from the marketplace's current allowlist;
+  neither is derived from `kinds`, and they are listing metadata rather than
+  manifest fields. The allowlisted tags do not carry instrument-specific
+  search terms, so keep `tuner`, `tuning`, `chromatic`, `guitar`, `bass`,
+  `pitch` and `cents` in the description.
 - A root `preview.png` (or `.jpg`/`.webp`/`.avif`) is what the site turns into
   the card and detail images. `docs/` is not scanned for one.
 - **Never put `sudo` or `pkexec` in backticks in the root README.** The

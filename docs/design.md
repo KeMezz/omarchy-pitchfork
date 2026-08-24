@@ -72,16 +72,34 @@ degrades to chromatic, which asks nothing and works for any instrument.
 ### The state file
 
 The state file was `input.json` and is now `settings.json`, because it carries
-the instrument and the reference alongside the input. **Nothing migrates the old
-name, and that does lose something**: remembering a *non-default* input was the
-whole purpose of `input.json`, so anyone who had picked an interface is silently
-returned to the PipeWire default. That failure is quiet in the worst way —
-`pw-cat` does not complain about the substitution, so it presents as a tuner
-that simply stopped finding notes. Pick the input again after upgrading, and
-delete the stale `input.json`.
+the instrument and the reference alongside the input. When the current file is
+absent, startup checks these records in order:
 
-A missing `settings.json` is read as first-run defaults — the PipeWire default
-input, and chromatic.
+1. `~/.config/omarchy-tuner/settings.json`, the previous directory with the
+   current multi-axis schema;
+2. `~/.config/omarchy-pitchfork/input.json`, a defensive path for the old
+   single-input schema under the renamed directory;
+3. `~/.config/omarchy-tuner/input.json`, the original single-input record.
+
+The directory creation and all reads complete before hydration, so a fast
+missing-file result cannot install defaults ahead of a slower legacy read. A
+selected legacy record is normalised and atomically written as the complete
+current `settings.json`; subsequent starts therefore take the current file and
+the migration happens once. Legacy files are left in place as a recovery copy.
+Capture also waits for hydration, so opening the panel during startup cannot
+launch `pw-cat` on the default input before a saved target is known.
+
+When neither the current nor a legacy record exists, first-run defaults are the
+PipeWire default input and chromatic tuning.
+
+Each monitor has its own panel instance. Before a write, the panel synchronously
+reads the newest record, merges only the locally changed fields, and completes a
+blocking atomic write through that same reader. Those tiny transactions share
+the QML thread, so a second monitor sees the first one's change even before its
+file notification is delivered. A watched change also uses that blocking
+reader: consecutive notifications cannot be coalesced into a stale async
+completion. A click during initial hydration is queued and merged by the same
+path.
 
 ## Panel chrome
 
@@ -119,6 +137,32 @@ Two smaller notes on the component:
   writes the selection onto `value`, which destroys the caller's binding to it;
   the panel needs that binding intact, because choosing an instrument can reset
   the tuning row underneath it and the trigger has to follow.
+
+### Plain text is a security boundary
+
+Every QML `Text` element pins `textFormat: Text.PlainText`. The panel displays
+PipeWire device names and descriptions, an input id restored from disk, and
+detector error output; none of those strings is authored by the QML. Leaving
+the default `Text.AutoText` would let markup-shaped content be interpreted as
+rich text, including loading resources referenced by that content from inside
+the long-lived shell process.
+
+`scripts/check-text-format.py` enforces the rule over every `Text`, including
+inline declarations. Apart from QML's formatter-managed `id`, it requires the
+exact binding to be the first member of the object and searches every `Text {`
+and `Text on property {` declaration independently. QML identifiers, including
+Unicode escapes, are decoded before comparison. That deliberately fail-closed
+rule avoids interpreting embedded JavaScript: nested templates,
+regex/division ambiguity, ASI and unrelated braces cannot hide a sink or lend
+it a binding from another object. Unsafe or noncanonical direct `textFormat`
+occurrences are rejected too, catching direct assignments, `PropertyChanges`,
+and quoted `Binding` property names in QML or imported runtime JavaScript. This
+is a fail-closed regression policy rather than a JavaScript interpreter;
+deliberately computed property names are outside its claim. Its stdlib tests
+cover canonical order,
+inline elements, nested children, comments, strings, regex literals, sibling
+elements, non-plain formats, and expressions that merely start with the
+PlainText token. This is part of `make check`, alongside `qmllint`.
 
 ### Showing that a string is in tune
 
@@ -171,15 +215,17 @@ and is not part of the protocol.
 
 ### How detection works
 
-YIN, in two stages, because a tuner has to resolve a cent or two while a bass
-low B sits near 31 Hz — and those two requirements pull the window length in
-opposite directions.
+YIN, in two stages, because a tuner has to resolve a cent or two while a
+down-tuned 5- or 6-string bass reaches A0 at 27.5 Hz — and those two
+requirements pull the window length in opposite directions.
 
-1. **Coarse.** The 2048-sample window (128 ms at 16 kHz) is box-decimated by 8
-   to 2 kHz, and a cumulative-mean-normalized difference function is evaluated
-   over lags 4–71, i.e. 28–500 Hz. The first dip below 0.12 wins, which is what
-   keeps the result off octave multiples.
-2. **Refine.** The period is re-searched at the full 16 kHz over ±8 lags around
+1. **Coarse.** The 2048-sample window (128 ms at 16 kHz) is box-decimated by 3
+   to about 5.33 kHz, and a cumulative-mean-normalized difference function is
+   evaluated over lags 10–223, i.e. 24–500 Hz. The first dip below 0.12 wins,
+   which is what keeps the result off octave multiples. The dense coarse grid
+   is deliberate: at 8:1 decimation A#3 and D#4 could settle one octave low;
+   even 4:1 could do the same for a harmonic-rich A#4.
+2. **Refine.** The period is re-searched at the full 16 kHz over ±3 lags around
    the coarse estimate, then parabolic interpolation puts it between samples.
    Without that interpolation one sample of period error is about 8 cents at a
    bass low E, which no tuner can use.
@@ -197,62 +243,105 @@ Two filters keep wrong notes off the screen:
 
 ### Measured behaviour
 
-`--selftest` is the regression check, and it asserts these:
+`--selftest` is a synthetic smoke and performance check. Its pass/fail bounds
+are deliberately looser than the values usually observed on a clean generated
+tone; the bounds, rather than one developer machine's latest measurements, are
+the maintained contract:
 
-| Case                                        | Result             |
-| ------------------------------------------- | ------------------ |
-| Clean tones, 30.87–329.63 Hz                | within 0.05 cents  |
-| Same tones under wideband noise             | within 1.3 cents   |
-| Silence, and wideband noise alone           | no pitch reported  |
-| Cost per frame                              | 1.9 ms of a 64 ms budget (3% of one core) |
+| Case | Required result |
+| ---- | --------------- |
+| Thirteen clean targets from A0 (27.50 Hz) through B4 (493.88 Hz), including A#3, D#4 and A#4 | a pitch at the correct octave, within 2 cents |
+| Representative noisy tones at 41.20, 82.41 and 196.00 Hz | within 5 cents |
+| Silence, and wideband noise alone | no pitch reported |
+| Average cost over 100 frames | below the 64 ms hop budget |
 
 Those numbers come from synthetic signals. A real instrument through a real
 input is a harder case; the self test is there to catch regressions, not to
 predict accuracy in a room.
 
+`tests/pitch_detect_test.py` is the deeper stdlib-only regression suite. It
+feeds continuous PCM through the deployed window, hop, and smoother path for
+every semitone in the full 24–500 Hz chromatic range, at two phases and with
+one, three, and six harmonics. That superset covers every unique note produced
+by the shipped instrument/tuning combinations, including A0, A#3, D#4 and A#4.
+It also checks tuning margin around A0 and E4, distinguishes range rejection
+from aperiodicity rejection, and verifies that any unexpected `pw-cat` EOF is
+surfaced as an error even when the child reports status zero or leaves a partial
+final PCM block.
+
+The same suite pins both parent-death failures called out during the community
+marketplace review: a failed `prctl` must abort before capture, and a parent
+change immediately after arming must exit before `exec`. A Linux integration
+test then kills a helper with `SIGKILL` and observes that its guarded child also
+stops. `make test` runs this suite, the `Text.PlainText` policy-lint tests, the
+Node tuning-model tests, and `--selftest`; `make check` adds manifest and QML
+validation.
+
+The GitHub Actions workflow runs that portable test set plus manifest JSON,
+tracked-symlink, shell-syntax, and live QML text-sink checks. It deliberately
+does not label itself `make check`: the authoritative plugin validator,
+`qmllint`, and the `qs.Ui` import tree are supplied by Omarchy and do not exist
+on a generic Ubuntu runner. A release still requires `make check` on Omarchy
+and validation of a fresh clone.
+
 ### The detector runs only while the panel is open
 
-`Process.running` is bound to the panel's `opened` state, and the detector's
-own child is bound to the detector: `pitch-detect.py` sets `PR_SET_PDEATHSIG`
-on `pw-cat` so the kernel kills the capture process if the detector dies
-without cleaning up — Quickshell may `SIGKILL` it, in which case no `finally`
-of ours runs. An orphaned `pw-cat` would be an open capture stream with no UI
-attached, which is exactly the thing this plugin must never leave behind.
+`Process.running` requires the panel to be open, state hydration to be complete,
+and `detectorArmed` to be true. The detector's own child is bound to the
+detector: `pitch-detect.py` sets `PR_SET_PDEATHSIG` on `pw-cat` so the kernel
+kills the capture process if the detector dies without cleaning up — Quickshell
+may `SIGKILL` it, in which case no `finally` of ours runs. An orphaned `pw-cat`
+would be an open capture stream with no UI attached, which is exactly the thing
+this plugin must never leave behind.
 
 Three mechanisms cover the three ways it can end: an orderly exit calls
 `terminate()`, a `SIGKILL` is caught by `PR_SET_PDEATHSIG`, and anything else
-leaves `pw-cat` writing to a closed pipe.
+leaves `pw-cat` writing to a closed pipe. Conversely, `pw-cat` has no successful
+EOF while the panel remains open: even a zero-status exit is reported instead
+of leaving the panel silently idle.
 
-A detector that exits is not restarted while the panel stays open — Quickshell
-only re-evaluates `Process.running` when `opened` changes — so the panel keeps
-the error the detector reported on its way out and tells the reader that
-reopening is the retry.
+An unexpected detector exit does not itself change any of those bindings, so
+Quickshell does not automatically restart it. The panel keeps the detector's
+error and presents closing and reopening as the retry. Explicitly selecting a
+different input also toggles `detectorArmed` and intentionally restarts capture.
 
 ## Dependencies
 
-Everything here is checked against a stock Omarchy 4.0 system.
+Everything here is checked against a stock Omarchy 4.0 system. `make doctor`
+checks the complete local development toolchain and rejects a Python that is
+too old or lacks `math.sumprod`.
 
-| Dependency | Status on a stock system | Used for |
-| ---------- | ------------------------ | -------- |
-| `python3` ≥ 3.12 | Present (3.14)     | The pitch detector. |
-| `node` | Development only  | `make test`. Not needed to run the plugin. |
-| `pw-cat`   | Present, shipped by PipeWire | Capturing raw PCM from the input. |
+| Dependency | Scope | Used for |
+| ---------- | ----- | -------- |
+| Omarchy Quattro and Quickshell | Runtime host | Loading the plugin, `qs.Ui`, panel IPC, and the existing PipeWire node model. |
+| `python3` ≥ 3.12 with `math.sumprod` | Runtime; present on stock Omarchy | The pitch detector. |
+| `pw-cat` from PipeWire | Runtime; present on stock Omarchy | Capturing raw PCM from the selected input. |
+| `mkdir` from GNU coreutils | Runtime; present on stock Omarchy | Creating the parent directory for the single settings file. |
+| Linux libc `prctl` | Runtime platform API | Arming `PR_SET_PDEATHSIG` so capture cannot outlive the panel. |
+| `pactl` from `pipewire-pulse` | Optional diagnostics | `pitch-detect.py --list-inputs` only; the panel and detector do not require it. |
+| `node` | Development only | Parsing `Tunings.js` and running its stdlib-only tests. |
+| `qmllint`, `qmlformat` | Development only | QML validation and formatting. |
+| `make`, `jq`, `rsync`, `inotifywait` | Development only | Validation, development sync, and watch mode. |
+| `omarchy`, `omarchy-shell`, `qs` | Development and host administration | Plugin validation, discovery, IPC, and shell diagnostics. |
+| GitHub-hosted Actions with pinned official checkout/setup actions | CI only | Checking out the source and provisioning Python 3.12 and Node 24; this uses the runner's GitHub/tool-download network access. |
 
 The 3.12 floor is `math.sumprod`, which is what makes a stdlib-only detector
 viable: the difference function is expanded into two energy terms and a dot
 product, so the only per-sample work happens inside a C loop. A Python-level
 inner loop here is what forces tuners like this one into numpy.
 
-No external package is required, and adding one should be a deliberate decision
-rather than a convenience:
+No third-party Python or Node package is required, and adding one should be a
+deliberate decision rather than a convenience:
 
 - **`aubio`, `numpy`, and `sox` are all absent** from a stock system, and none
   of them are needed.
-- A bundled or compiled binary, an installer, a systemd unit, `sudo`, or
-  `pkexec` would all put the plugin into the marketplace's manual security
-  review queue. None of them are used.
-- No network access.
-- No privileged actions.
+- There is no bundled or compiled binary, plugin-owned installer, or systemd
+  unit, and the plugin performs no privileged action.
+- Runtime has no network dependency and initiates no network connection.
+  Installation and updates use Omarchy's normal Git clone/fetch from GitHub;
+  no plugin code downloads anything.
+- Pitchfork consumes the already-running Omarchy shell and PipeWire services;
+  it installs, starts, stops, and reconfigures no service.
 
 ### Choosing an input
 
@@ -282,7 +371,7 @@ An unplugged electric instrument is not audible to it at all — that needs an
 audio interface, and no software setting substitutes for one.
 
 ```
-scripts/pitch-detect.py --list-inputs                   # the same list, in a shell
+scripts/pitch-detect.py --list-inputs                   # pactl diagnostics, including monitors
 pactl set-source-volume @DEFAULT_SOURCE@ 100%           # the array is often low
 ```
 

@@ -102,6 +102,33 @@ Panel {
     property string selectedTarget: ""
     property bool detectorArmed: true
     readonly property string statePath: Quickshell.env("HOME") + "/.config/omarchy-pitchfork/settings.json"
+    readonly property string renamedInputPath: Quickshell.env("HOME") + "/.config/omarchy-pitchfork/input.json"
+    readonly property string legacySettingsPath: Quickshell.env("HOME") + "/.config/omarchy-tuner/settings.json"
+    readonly property string legacyInputPath: Quickshell.env("HOME") + "/.config/omarchy-tuner/input.json"
+    // All four reads and the parent-directory creation finish before the first
+    // state is applied. That removes the startup race where a missing new file
+    // could install defaults before a legacy input had a chance to load.
+    property bool stateDirReady: false
+    property bool stateHydrated: false
+    property bool currentStateDone: false
+    property bool renamedInputDone: false
+    property bool renamedInputFound: false
+    property string renamedInputText: ""
+    property bool legacySettingsDone: false
+    property bool legacySettingsFound: false
+    property string legacySettingsText: ""
+    property bool legacyInputDone: false
+    property bool legacyInputFound: false
+    property string legacyInputText: ""
+    // A click that lands during initial hydration is replayed over the newest
+    // record instead of being discarded.
+    property var pendingSettingsPatch: ({})
+    // The panel owns one cursor across the family chips and all visible
+    // dropdowns. It starts hidden; the first navigation key reveals it on the
+    // current family without unexpectedly changing a setting.
+    property bool cursorActive: false
+    property string focusSection: "family"
+    property int familyCursorIndex: 0
     readonly property var nodes: Pipewire.nodes ? Pipewire.nodes.values : []
     readonly property var defaultSource: Pipewire.defaultAudioSource
     // Naming what "System default" currently resolves to, so the safe choice
@@ -179,6 +206,101 @@ Panel {
         return false;
     }
 
+    function familyIndexFor(value) {
+        var wanted = String(value || "");
+        for (var index = 0; index < root.familyOptions.length; index++) {
+            if (String(root.familyOptions[index].value) === wanted)
+                return index;
+
+        }
+        return 0;
+    }
+
+    function cursorSections() {
+        var sections = ["family"];
+        if (root.instrumentOptions.length > 0)
+            sections.push("instrument");
+        if (root.tuningOptions.length > 0)
+            sections.push("tuning");
+        sections.push("input");
+        return sections;
+    }
+
+    function repairCursor() {
+        root.familyCursorIndex = Math.max(0, Math.min(root.familyOptions.length - 1, root.familyCursorIndex));
+        if (root.cursorSections().indexOf(root.focusSection) === -1)
+            root.focusSection = "family";
+    }
+
+    function revealCursor() {
+        root.cursorActive = true;
+        root.focusSection = "family";
+        root.familyCursorIndex = root.familyIndexFor(root.selectedFamily);
+    }
+
+    function anyPopupOpen() {
+        return instrumentDropdown.popupOpen || tuningDropdown.popupOpen || inputDropdown.popupOpen;
+    }
+
+    function setCursor(section, index) {
+        // An open popup owns both keyboard and pointer navigation. Once it is
+        // closed, put focus back on the panel dispatcher so a trigger left
+        // focused by Qt cannot paint a second cursor beside this one.
+        if (root.anyPopupOpen())
+            return ;
+        keyCatcher.forceActiveFocus();
+        root.cursorActive = true;
+        root.focusSection = section;
+        if (section === "family")
+            root.familyCursorIndex = index;
+        root.repairCursor();
+    }
+
+    function moveCursor(dx, dy) {
+        keyCatcher.forceActiveFocus();
+        if (!root.cursorActive) {
+            root.revealCursor();
+            return ;
+        }
+
+        root.repairCursor();
+        if (dy !== 0) {
+            var sections = root.cursorSections();
+            var current = Math.max(0, sections.indexOf(root.focusSection));
+            root.focusSection = sections[Math.max(0, Math.min(sections.length - 1, current + (dy > 0 ? 1 : -1)))];
+            if (root.focusSection === "family")
+                root.familyCursorIndex = root.familyIndexFor(root.selectedFamily);
+            return ;
+        }
+
+        if (dx !== 0 && root.focusSection === "family")
+            root.familyCursorIndex = Math.max(0, Math.min(root.familyOptions.length - 1, root.familyCursorIndex + (dx > 0 ? 1 : -1)));
+    }
+
+    function activateCursor() {
+        if (!root.cursorActive) {
+            root.revealCursor();
+            return ;
+        }
+
+        root.repairCursor();
+        if (root.focusSection === "family") {
+            if (root.familyCursorIndex >= 0 && root.familyCursorIndex < root.familyOptions.length)
+                root.selectFamily(String(root.familyOptions[root.familyCursorIndex].value));
+        } else if (root.focusSection === "instrument") {
+            instrumentDropdown.open();
+        } else if (root.focusSection === "tuning") {
+            tuningDropdown.open();
+        } else if (root.focusSection === "input") {
+            inputDropdown.open();
+        }
+    }
+
+    function finiteNonnegative(value) {
+        var numeric = Number(value);
+        return isFinite(numeric) && numeric >= 0 ? numeric : 0;
+    }
+
     function applyReading(line) {
         var text = String(line || "").trim();
         if (text.length === 0)
@@ -186,9 +308,13 @@ Panel {
 
         try {
             var reading = JSON.parse(text);
-            root.detectedHz = Number(reading.hz) || 0;
-            root.confidence = Number(reading.confidence) || 0;
-            root.level = Number(reading.level) || 0;
+            // Treat the subprocess boundary as untrusted even though the
+            // bundled detector is the normal writer. Infinity and negatives
+            // otherwise leak into pitch maths and meter geometry as a false
+            // in-tune reading or NaN width.
+            root.detectedHz = root.finiteNonnegative(reading.hz);
+            root.confidence = Math.min(1, root.finiteNonnegative(reading.confidence));
+            root.level = Math.min(1, root.finiteNonnegative(reading.level));
             root.detectorSource = String(reading.source || "");
             root.detectorError = String(reading.error || "");
             root.detectorStopped = false;
@@ -200,6 +326,10 @@ Panel {
                 hold.restart();
             }
         } catch (parseError) {
+            // A malformed line is not evidence that the previous pitch is
+            // still live. Fail closed so the bar cannot retain a stale accent
+            // after the protocol broke.
+            root.clearSignal();
             root.detectorError = "unreadable detector output";
         }
     }
@@ -234,7 +364,9 @@ Panel {
             return ;
 
         root.selectedTarget = next;
-        root.persistSettings();
+        root.persistSettings({
+            "target": next
+        });
         root.restartDetector();
     }
 
@@ -249,7 +381,11 @@ Panel {
         root.selectedInstrument = next.instrument;
         root.selectedTuning = next.tuning;
         root.beginFreshPass();
-        root.persistSettings();
+        root.persistSettings({
+            "family": next.family,
+            "instrument": next.instrument,
+            "tuning": next.tuning
+        });
     }
 
     function selectFamily(id) {
@@ -287,35 +423,173 @@ Panel {
         rearm.restart();
     }
 
-    function persistSettings() {
-        stateFile.setText(JSON.stringify({
+    function hasOwn(record, key) {
+        return record && typeof record === "object" && Object.prototype.hasOwnProperty.call(record, key);
+    }
+
+    function parseSettings(raw) {
+        try {
+            var parsed = JSON.parse(String(raw || "{}"));
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch (parseError) {
+            return {};
+        }
+    }
+
+    function mergeSettings(base, patch) {
+        var merged = {};
+        var keys = ["target", "family", "instrument", "tuning"];
+        for (var index = 0; index < keys.length; index++) {
+            var key = keys[index];
+            if (root.hasOwn(base, key))
+                merged[key] = base[key];
+            if (root.hasOwn(patch, key))
+                merged[key] = patch[key];
+        }
+        return merged;
+    }
+
+    function hasSettingsPatch(patch) {
+        return root.hasOwn(patch, "target") || root.hasOwn(patch, "family") || root.hasOwn(patch, "instrument") || root.hasOwn(patch, "tuning");
+    }
+
+    function rememberSettingsPatch(patch) {
+        root.pendingSettingsPatch = root.mergeSettings(root.pendingSettingsPatch, patch);
+    }
+
+    function settingsRecord() {
+        return {
             "target": root.selectedTarget,
             "family": root.selectedFamily,
             "instrument": root.selectedInstrument,
             "tuning": root.selectedTuning
-        }, null, 2) + "\n");
+        };
     }
 
-    // Writes the properties directly rather than going through the select
-    // helpers, which would persist the file back and restart the detector
-    // while it is still being read.
-    function loadSettings(raw) {
-        var stored = {
-        };
-        try {
-            stored = JSON.parse(String(raw || "{}"));
-        } catch (parseError) {
-            stored = {
-            };
-        }
-        root.selectedTarget = String((stored && stored.target) || "");
-        // Tunings.normalize always answers with a combination that exists, so
-        // a record from an older version -- which stored one flat preset id --
-        // or a hand-edited file cannot leave the panel without an instrument.
+    function serializeSettings() {
+        return JSON.stringify(root.settingsRecord(), null, 2) + "\n";
+    }
+
+    function applyStoredSettings(stored, applyEffects) {
+        var target = String(root.hasOwn(stored, "target") ? (stored.target || "") : "");
         var selection = Tunings.normalize(stored);
+        var targetChanged = target !== root.selectedTarget;
+        var tuningChanged = selection.family !== root.selectedFamily || selection.instrument !== root.selectedInstrument || selection.tuning !== root.selectedTuning;
+
+        root.selectedTarget = target;
         root.selectedFamily = selection.family;
         root.selectedInstrument = selection.instrument;
         root.selectedTuning = selection.tuning;
+        root.repairCursor();
+
+        if (!applyEffects)
+            return ;
+        if (tuningChanged)
+            root.beginFreshPass();
+        if (targetChanged)
+            root.restartDetector();
+    }
+
+    function persistSettings(patch) {
+        var change = patch && typeof patch === "object" ? patch : {};
+        if (!root.stateHydrated || !root.stateDirReady) {
+            if (root.hasSettingsPatch(change))
+                root.rememberSettingsPatch(change);
+            return ;
+        }
+
+        // Every panel instance lives on the same QML thread. A blocking read
+        // followed by a blocking atomic write therefore serialises this tiny
+        // transaction across monitors: the second handler sees the first
+        // handler's field even before its inotify notification is delivered.
+        mergeStateFile.reload();
+        var latestText = String(mergeStateFile.text() || "");
+        var base = mergeStateFile.loaded ? root.parseSettings(latestText) : root.settingsRecord();
+        root.applyStoredSettings(root.mergeSettings(base, change), true);
+        var serialized = root.serializeSettings();
+        if (mergeStateFile.loaded && serialized === latestText)
+            return ;
+
+        // Write through the same FileView that performed the latest read.
+        // FileView suppresses a setText equal to its own cache; using the
+        // watched view here could mistake a stale async cache for disk state.
+        mergeStateFile.setText(serialized);
+    }
+
+    function finishStateHydration() {
+        if (root.stateHydrated || !root.stateDirReady || !root.currentStateDone || !root.renamedInputDone || !root.legacySettingsDone || !root.legacyInputDone)
+            return ;
+
+        // Prefer the current file, then the newest legacy schema. input.json
+        // is older and carries only the target, so it comes after either
+        // settings.json location. Legacy files are deliberately left in place:
+        // writing the current path makes this a one-time, recoverable migration.
+        var raw = "{}";
+        var migrating = false;
+        // The watched read may have completed just before another monitor
+        // wrote a newer record. Re-read synchronously at the commit point so
+        // hydration can never install that stale completion.
+        mergeStateFile.reload();
+        var latestText = String(mergeStateFile.text() || "");
+        if (mergeStateFile.loaded) {
+            raw = latestText;
+        } else if (root.legacySettingsFound) {
+            raw = root.legacySettingsText;
+            migrating = true;
+        } else if (root.renamedInputFound) {
+            raw = root.renamedInputText;
+            migrating = true;
+        } else if (root.legacyInputFound) {
+            raw = root.legacyInputText;
+            migrating = true;
+        }
+
+        var pending = root.pendingSettingsPatch;
+        root.pendingSettingsPatch = {};
+        root.applyStoredSettings(root.mergeSettings(root.parseSettings(raw), pending), false);
+        root.stateHydrated = true;
+        if (migrating || root.hasSettingsPatch(pending))
+            root.persistSettings(pending);
+    }
+
+    function currentStateLoaded() {
+        if (root.stateHydrated) {
+            root.reloadLatestSettings();
+            return ;
+        }
+
+        root.currentStateDone = true;
+        root.finishStateHydration();
+    }
+
+    function currentStateFailed() {
+        if (root.stateHydrated) {
+            root.reloadLatestSettings();
+            return ;
+        }
+
+        root.currentStateDone = true;
+        root.finishStateHydration();
+    }
+
+    function applyReloadedSettings(raw) {
+        var pending = root.pendingSettingsPatch;
+        root.pendingSettingsPatch = {};
+        root.applyStoredSettings(root.mergeSettings(root.parseSettings(raw), pending), true);
+        if (root.hasSettingsPatch(pending))
+            root.persistSettings(pending);
+    }
+
+    function reloadLatestSettings() {
+        if (!root.stateHydrated)
+            return ;
+
+        // FileView coalesces reload() while an async reader is already alive.
+        // The dedicated blocking view instead reads the latest disk state for
+        // every notification, so a rapid S1/S2 pair cannot strand the UI at S1.
+        mergeStateFile.reload();
+        var latestText = String(mergeStateFile.text() || "");
+        root.applyReloadedSettings(mergeStateFile.loaded ? latestText : "{}");
     }
 
     function markTarget(index) {
@@ -370,6 +644,9 @@ Panel {
         if (root.opened) {
             root.resetDetector();
             root.beginFreshPass();
+            root.cursorActive = false;
+            root.focusSection = "family";
+            root.familyCursorIndex = root.familyIndexFor(root.selectedFamily);
         }
     }
     // Restart rather than let the timer coast. Moving to the next string
@@ -390,7 +667,10 @@ Panel {
     Process {
         id: detector
 
-        running: root.opened && root.detectorArmed
+        // Hydration waits for every current/legacy candidate. Starting sooner
+        // could launch pw-cat on the default input and then update only the UI
+        // when a saved non-default target arrives.
+        running: root.opened && root.detectorArmed && root.stateHydrated
         command: root.detectorCommand
         // Keep whatever error the detector reported on its way out; it exits
         // immediately after emitting one, and it is the only diagnostic the
@@ -439,6 +719,10 @@ Panel {
 
         running: true
         command: ["mkdir", "-p", Quickshell.env("HOME") + "/.config/omarchy-pitchfork"]
+        onExited: {
+            root.stateDirReady = true;
+            root.finishStateHydration();
+        }
     }
 
     FileView {
@@ -446,11 +730,83 @@ Panel {
 
         path: root.statePath
         atomicWrites: true
+        watchChanges: true
         printErrors: false
-        onLoaded: root.loadSettings(text())
-        // Absent on first run, which is not a failure: no stored settings mean
-        // the PipeWire default input and chromatic, which asks nothing.
-        onLoadFailed: root.loadSettings("{}")
+        onLoaded: root.currentStateLoaded()
+        // A change can come from the panel instance on another monitor. Once
+        // hydrated, bypass this view's coalescing async reader and synchronously
+        // consume the latest record through mergeStateFile.
+        onFileChanged: {
+            if (root.stateHydrated)
+                root.reloadLatestSettings();
+            else
+                reload();
+        }
+        onLoadFailed: root.currentStateFailed()
+    }
+
+    // Dedicated synchronous reader for field-level merge writes. Keeping it
+    // separate prevents an explicit local reload from driving the watched
+    // view's hydration/reload signals while a selection is being committed.
+    FileView {
+        id: mergeStateFile
+
+        path: root.statePath
+        preload: false
+        blockAllReads: true
+        atomicWrites: true
+        // The record is tiny. Blocking makes the merged atomic write complete
+        // before another monitor's event handler can begin.
+        blockWrites: true
+        printErrors: false
+    }
+
+    FileView {
+        path: root.renamedInputPath
+        printErrors: false
+        onLoaded: {
+            root.renamedInputText = String(text() || "");
+            root.renamedInputFound = true;
+            root.renamedInputDone = true;
+            root.finishStateHydration();
+        }
+        onLoadFailed: {
+            root.renamedInputFound = false;
+            root.renamedInputDone = true;
+            root.finishStateHydration();
+        }
+    }
+
+    FileView {
+        path: root.legacySettingsPath
+        printErrors: false
+        onLoaded: {
+            root.legacySettingsText = String(text() || "");
+            root.legacySettingsFound = true;
+            root.legacySettingsDone = true;
+            root.finishStateHydration();
+        }
+        onLoadFailed: {
+            root.legacySettingsFound = false;
+            root.legacySettingsDone = true;
+            root.finishStateHydration();
+        }
+    }
+
+    FileView {
+        path: root.legacyInputPath
+        printErrors: false
+        onLoaded: {
+            root.legacyInputText = String(text() || "");
+            root.legacyInputFound = true;
+            root.legacyInputDone = true;
+            root.finishStateHydration();
+        }
+        onLoadFailed: {
+            root.legacyInputFound = false;
+            root.legacyInputDone = true;
+            root.finishStateHydration();
+        }
     }
 
     KeyboardPanel {
@@ -473,6 +829,10 @@ Panel {
             // Any open popup owns the keyboard, and each of the three would
             // have j/k and the digits double-driving the panel cursor.
             blocked: instrumentDropdown.popupOpen || tuningDropdown.popupOpen || inputDropdown.popupOpen
+            onMoveRequested: function(dx, dy) {
+                root.moveCursor(dx, dy);
+            }
+            onActivateRequested: root.activateCursor()
             onCloseRequested: root.close()
             onTabRequested: function(direction) {
                 root.switchPanel(direction);
@@ -509,6 +869,10 @@ Panel {
                     color: root.readingInTune ? Util.alpha(Color.accent, 0.16) : Util.alpha(root.barForeground, 0.06)
                     border.width: root.readingInTune ? Math.max(1, Style.normalBorderWidth) : 0
                     border.color: Util.alpha(Color.accent, 0.55)
+                    // Apply the held-reading cue to the whole surface. Keeping
+                    // only the glyphs dim left the accent background and border
+                    // looking live after the detector had gone silent.
+                    opacity: root.readingOpacity
 
                     Column {
                         id: readingBody
@@ -526,7 +890,6 @@ Panel {
                             horizontalAlignment: Text.AlignHCenter
                             text: root.noteLabel
                             color: root.readingInTune ? Color.accent : root.barForeground
-                            opacity: root.readingOpacity
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Math.round(Style.font.subtitle * 2.2)
                             font.bold: true
@@ -593,7 +956,6 @@ Panel {
                                 radius: width / 2
                                 visible: root.displayHz > 0
                                 color: root.readingInTune ? Color.accent : Color.urgent
-                                opacity: root.readingOpacity
                                 x: Math.max(0, Math.min(meter.width - width, (meter.width - width) * (Math.max(-50, Math.min(50, root.centsExact)) + 50) / 100))
 
                                 Behavior on x {
@@ -613,7 +975,7 @@ Panel {
                             horizontalAlignment: Text.AlignHCenter
                             text: root.displayHz > 0 ? (root.cents > 0 ? "+" : "") + root.cents + " cents  ·  " + root.displayHz.toFixed(2) + " Hz" : "No pitch detected"
                             color: root.barForeground
-                            opacity: root.readingOpacity * 0.85
+                            opacity: 0.85
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                             wrapMode: Text.WordWrap
@@ -654,7 +1016,7 @@ Panel {
                             readonly property bool checked: root.checkedTargets.indexOf(pill.index) !== -1
                             // The string the reading is closest to right now.
                             readonly property bool current: root.targetIndex === pill.index && root.displayHz > 0
-                            readonly property bool live: pill.current && root.readingInTune
+                            readonly property bool live: pill.current && root.detectedHz > 0 && root.readingInTune
 
                             width: (targetStrip.width - targetStrip.spacing * Math.max(0, root.targets.length - 1)) / Math.max(1, root.targets.length)
                             height: Style.space(26)
@@ -662,6 +1024,7 @@ Panel {
                             color: pill.live ? Util.alpha(Color.accent, 0.34) : (pill.checked ? Util.alpha(Color.accent, 0.14) : (pill.current ? Util.alpha(root.barForeground, 0.14) : Util.alpha(root.barForeground, 0.05)))
                             border.width: pill.current ? Math.max(1, Style.normalBorderWidth) : 0
                             border.color: pill.live ? Util.alpha(Color.accent, 0.6) : Util.alpha(root.barForeground, 0.35)
+                            opacity: pill.current ? root.readingOpacity : 1
 
                             Text {
                                 textFormat: Text.PlainText
@@ -750,10 +1113,12 @@ Panel {
 
                         Button {
                             required property var modelData
+                            required property int index
 
                             width: (familyToggle.width - familyToggle.spacing * Math.max(0, root.familyOptions.length - 1)) / Math.max(1, root.familyOptions.length)
                             text: String(modelData.label)
                             selected: String(modelData.value) === root.selectedFamily
+                            hasCursor: root.cursorActive && root.focusSection === "family" && root.familyCursorIndex === index
                             bordered: true
                             verticalPadding: Style.space(8)
                             foreground: root.barForeground
@@ -761,6 +1126,10 @@ Panel {
                             fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                             fontSize: Style.font.body
                             onClicked: root.selectFamily(String(modelData.value))
+                            onHovered: function(isHovered) {
+                                if (isHovered)
+                                    root.setCursor("family", index);
+                            }
                         }
 
                     }
@@ -778,8 +1147,13 @@ Panel {
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     options: root.instrumentOptions
                     value: root.selectedInstrument
+                    hasCursor: root.cursorActive && root.focusSection === "instrument"
                     onChanged: function(selected) {
                         root.selectInstrument(selected);
+                    }
+                    onHovered: function(isHovered) {
+                        if (isHovered)
+                            root.setCursor("instrument", 0);
                     }
                 }
 
@@ -792,8 +1166,13 @@ Panel {
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     options: root.tuningOptions
                     value: root.selectedTuning
+                    hasCursor: root.cursorActive && root.focusSection === "tuning"
                     onChanged: function(selected) {
                         root.selectTuning(selected);
+                    }
+                    onHovered: function(isHovered) {
+                        if (isHovered)
+                            root.setCursor("tuning", 0);
                     }
                 }
 
@@ -822,8 +1201,13 @@ Panel {
                     fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
                     options: root.inputOptions
                     value: root.selectedTarget
+                    hasCursor: root.cursorActive && root.focusSection === "input"
                     onChanged: function(selected) {
                         root.selectTarget(selected);
+                    }
+                    onHovered: function(isHovered) {
+                        if (isHovered)
+                            root.setCursor("input", 0);
                     }
                 }
 

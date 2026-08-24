@@ -4,20 +4,20 @@ OMARCHY_PATH ?= /usr/share/omarchy
 PLUGIN_ID := $(shell jq -r '.id' manifest.json)
 PLUGIN_ROOT ?= $(HOME)/.config/omarchy/plugins
 PLUGIN_DIR ?= $(PLUGIN_ROOT)/$(PLUGIN_ID)
-QML_FILES := $(sort $(wildcard *.qml) $(wildcard */*.qml))
-JS_FILES := $(sort $(wildcard *.js))
+QML_FILES := $(sort $(shell find . -type f -name '*.qml' -not -path './.git/*'))
+JS_FILES := $(sort $(shell find . -type f -name '*.js' -not -path './.git/*'))
 
 .DEFAULT_GOAL := help
 
-.PHONY: help doctor check validate lint test format install-dev sync enable disable status summon hide logs watch uninstall-dev
+.PHONY: help doctor check validate lint lint-text test format install-dev sync enable disable status summon hide logs watch uninstall-dev
 
 help:
 	@printf '%s\n' \
 	  'Omarchy Pitchfork plugin' \
 	  '' \
 	  '  make doctor       Check the local toolchain and shell status' \
-	  '  make check        Validate manifest, lint QML, run JS tests' \
-	  '  make test         Run the pitch maths tests' \
+	  '  make check        Validate, lint, and run every regression test' \
+	  '  make test         Run tuning, detector, and policy-lint tests' \
 	  '  make format       Format all QML files in place' \
 	  '  make install-dev  Copy, discover, and enable the plugin' \
 	  '  make sync         Validate and copy changes into Omarchy' \
@@ -38,13 +38,18 @@ validate:
 
 lint:
 	qmllint -I "$(OMARCHY_PATH)/shell" $(QML_FILES)
-	@python3 scripts/check-text-format.py $(QML_FILES)
+	@$(MAKE) --no-print-directory lint-text
+
+lint-text:
+	@python3 scripts/check-text-format.py $(QML_FILES) $(JS_FILES)
 
 # qmllint never opens a .js file, so without this a wrong tuning table -- or a
 # Tunings.js that does not parse at all -- passes the whole verification gate.
 test:
 	@for file in $(JS_FILES); do node --check "$$file" || exit 1; done
 	@node tests/tunings.test.mjs
+	@python3 -m unittest discover -s tests -p '*_test.py'
+	@python3 scripts/pitch-detect.py --selftest
 
 format:
 	qmlformat --inplace $(QML_FILES)

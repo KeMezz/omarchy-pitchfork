@@ -8,8 +8,8 @@ line protocol and why there is no numpy dependency.
 Detection is YIN: a cumulative-mean-normalized difference function picks the
 period, which is then refined at the full sample rate and interpolated to
 sub-sample precision. The work is done in two stages because a tuner has to
-resolve a cent or two while a bass low B sits near 31 Hz, and those two pull
-the window length in opposite directions.
+resolve a cent or two while a down-tuned bass sits near 25 Hz, and those two
+pull the window length in opposite directions.
 
 Usage:
     pitch-detect.py [--target NODE] [--rate HZ] [--gate LEVEL]
@@ -37,12 +37,15 @@ WINDOW = 2048
 HOP = 1024
 # Decimation for the coarse stage. A box filter of this length is a crude
 # anti-alias, but its first null sits at the decimated sample rate and pitch
-# only needs the fundamental to survive.
-DECIM = 8
+# only needs the fundamental to survive. Three leaves enough period resolution
+# at the top of the chromatic range that a true dip cannot fall between samples
+# and make the first accepted dip an octave below it.
+DECIM = 3
 
-# Search range. The low end covers a 5-string bass low B (30.9 Hz); the high
-# end clears a guitar's open high E (329.6 Hz) with room for a capo.
-FMIN = 28.0
+# Search range. The low end leaves a whole tone of tuning room below the A0
+# supplied by the dropped 5- and 6-string bass tunings (24.5 Hz); the high end
+# clears a guitar's open high E (329.6 Hz) with room for a capo.
+FMIN = 24.0
 FMAX = 500.0
 
 # YIN's aperiodicity threshold: the first period whose normalized difference
@@ -336,7 +339,10 @@ def print_meter(reading: dict) -> None:
     if "aperiodicity" in reading:
         judgement = f"aper {reading['aperiodicity']:.2f}"
         if reading["hz"] <= 0:
-            judgement += f" > {REJECT_ABOVE:.2f}, rejected"
+            if reading["aperiodicity"] > REJECT_ABOVE:
+                judgement += f" > {REJECT_ABOVE:.2f}, rejected"
+            else:
+                judgement += "; no in-range pitch"
     else:
         judgement = "below the level gate"
     sys.stdout.write(f"\r  [{bar}] {level:.4f}   {pitch}   {judgement:<28}")
@@ -351,8 +357,31 @@ def run_meter(target: str, rate: int, gate: float) -> int:
     except FileNotFoundError:
         print("pw-cat not found; install pipewire-audio", file=sys.stderr)
         return 1
+    except (OSError, subprocess.SubprocessError):
+        print("could not guarantee pw-cat exits with the panel; not recording", file=sys.stderr)
+        return 1
     try:
-        return run_stream(recorder.stdout, Detector(rate=rate, gate=gate), sink=print_meter)
+        stream_status = run_stream(recorder.stdout, Detector(rate=rate, gate=gate),
+                                   sink=print_meter)
+        try:
+            recorder_status = recorder.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            print("pw-cat closed its audio stream without exiting; stopping it",
+                  file=sys.stderr)
+            return 1
+        if recorder_status != 0:
+            print(f"pw-cat stopped unexpectedly (status {recorder_status}); "
+                  "check the input device", file=sys.stderr)
+            return 1
+        if stream_status != 0:
+            print("pw-cat produced no complete audio frame; check the input device",
+                  file=sys.stderr)
+        else:
+            # A recorder is expected to stream until this process is stopped.
+            # Even status 0 is an unexpected device/capture shutdown here.
+            print("pw-cat audio stream ended; check the input device",
+                  file=sys.stderr)
+        return 1
     finally:
         print()
         if recorder.poll() is None:
@@ -397,11 +426,28 @@ def run_capture(target: str, rate: int, gate: float) -> int:
               "error": "could not guarantee pw-cat exits with the panel; not recording"})
         return 1
     try:
-        status = run_stream(recorder.stdout, Detector(rate=rate, gate=gate))
-        if status != 0:
+        stream_status = run_stream(recorder.stdout, Detector(rate=rate, gate=gate))
+        try:
+            recorder_status = recorder.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            emit({"hz": 0.0, "confidence": 0.0, "level": 0.0, "source": "pw-cat",
+                  "error": "pw-cat closed its audio stream without exiting; stopped"})
+            return 1
+        if recorder_status != 0:
+            emit({"hz": 0.0, "confidence": 0.0, "level": 0.0, "source": "pw-cat",
+                  "error": f"pw-cat stopped unexpectedly (status {recorder_status}); "
+                           "check the input device"})
+            return 1
+        if stream_status != 0:
             emit({"hz": 0.0, "confidence": 0.0, "level": 0.0, "source": "pw-cat",
                   "error": "no audio from pw-cat; check the input device"})
-        return status
+        else:
+            # Capture has no successful EOF while the panel remains open. A
+            # zero exit status can still mean a disconnected or stopped node,
+            # and silently returning would leave the panel looking idle.
+            emit({"hz": 0.0, "confidence": 0.0, "level": 0.0, "source": "pw-cat",
+                  "error": "pw-cat audio stream ended; check the input device"})
+        return 1
     finally:
         # Belt and braces: this covers an orderly exit, PR_SET_PDEATHSIG covers
         # a SIGKILL, and a SIGPIPE on pw-cat's next write covers the rest.
@@ -443,9 +489,11 @@ def noise_into(samples: array.array, amplitude: float, seed: int = 999) -> array
 def selftest() -> int:
     import time
     detector = Detector()
-    # Open strings that matter: 5-string bass low B, 4-string bass E, guitar
-    # low E and A, guitar open high E.
-    cases = [30.87, 41.20, 82.41, 110.00, 146.83, 196.00, 246.94, 329.63]
+    # Open strings that matter, plus chromatic A#4 and B4 near the top of the
+    # range. The latter pins the coarse resolution: a less-resolved stage has
+    # mistaken harmonic-rich A#4 for A#3 even while every open string passed.
+    cases = [27.50, 30.87, 41.20, 82.41, 110.00, 146.83, 196.00,
+             233.08, 246.94, 311.13, 329.63, 466.16, 493.88]
     failures = 0
     print(f"{'target Hz':>10}  {'measured':>10}  {'cents':>7}  {'conf':>5}")
     for expected in cases:
