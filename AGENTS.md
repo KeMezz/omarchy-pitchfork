@@ -81,6 +81,15 @@ installable.
   with `BorderSurface is not a type`, which `make check` cannot catch.
 - No hex colour literals in QML. Everything comes from `Color`, `Style` or the
   bar's own foreground, so a theme switch carries the panel with it.
+- **Every `Text` pins `textFormat: Text.PlainText`.** The default is
+  `Text.AutoText`, which sniffs its content, renders anything markup-shaped as
+  rich text, and *loads the resources that markup references* -- from inside the
+  long-lived shell process. This panel renders strings it does not author:
+  PipeWire device names and descriptions, the input id restored from disk, and
+  the detector's own error output. `make lint` runs
+  `scripts/check-text-format.py` to enforce it on every `Text`, not only the
+  ones that carry outside data today, because which strings are external
+  changes with each edit.
 
 ## State
 

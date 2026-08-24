@@ -48,6 +48,7 @@ rsync -a --delete \
   --exclude 'docs/' \
   --exclude 'tests/' \
   --exclude '__pycache__/' \
+  --exclude 'scripts/check-text-format.py' \
   --exclude 'scripts/doctor.sh' \
   --exclude 'scripts/sync-dev.sh' \
   --exclude 'scripts/validate-plugin.sh' \

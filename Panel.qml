@@ -485,6 +485,7 @@ Panel {
                 spacing: Style.space(10)
 
                 Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     text: "Pitchfork"
                     color: root.barForeground
@@ -520,6 +521,7 @@ Panel {
                         spacing: Style.space(8)
 
                         Text {
+                            textFormat: Text.PlainText
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
                             text: root.noteLabel
@@ -562,6 +564,7 @@ Panel {
                             // Which way the peg has to turn, which the sign on
                             // the cents line states but does not show.
                             Text {
+                                textFormat: Text.PlainText
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
                                 anchors.leftMargin: Style.space(6)
@@ -573,6 +576,7 @@ Panel {
                             }
 
                             Text {
+                                textFormat: Text.PlainText
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
                                 anchors.rightMargin: Style.space(6)
@@ -604,6 +608,7 @@ Panel {
                         }
 
                         Text {
+                            textFormat: Text.PlainText
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
                             text: root.displayHz > 0 ? (root.cents > 0 ? "+" : "") + root.cents + " cents  ·  " + root.displayHz.toFixed(2) + " Hz" : "No pitch detected"
@@ -659,6 +664,7 @@ Panel {
                             border.color: pill.live ? Util.alpha(Color.accent, 0.6) : Util.alpha(root.barForeground, 0.35)
 
                             Text {
+                                textFormat: Text.PlainText
                                 anchors.centerIn: parent
                                 text: String(pill.modelData)
                                 color: (pill.live || pill.checked) ? Color.accent : root.barForeground
@@ -710,6 +716,7 @@ Panel {
                 }
 
                 Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     visible: root.statusText.length > 0
                     horizontalAlignment: Text.AlignHCenter
@@ -797,6 +804,7 @@ Panel {
                 }
 
                 Text {
+                    textFormat: Text.PlainText
                     width: parent.width
                     visible: !root.selectionAvailable
                     text: "The chosen input is not connected. Capture falls back to the system default without warning."

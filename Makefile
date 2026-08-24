@@ -38,6 +38,7 @@ validate:
 
 lint:
 	qmllint -I "$(OMARCHY_PATH)/shell" $(QML_FILES)
+	@python3 scripts/check-text-format.py $(QML_FILES)
 
 # qmllint never opens a .js file, so without this a wrong tuning table -- or a
 # Tunings.js that does not parse at all -- passes the whole verification gate.

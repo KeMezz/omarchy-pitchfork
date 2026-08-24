@@ -87,6 +87,7 @@ Item {
         spacing: Style.spacing.labelGap
 
         Text {
+            textFormat: Text.PlainText
             visible: root.label !== ""
             text: root.label
             color: Qt.darker(root.foreground, 1.4)
@@ -127,6 +128,7 @@ Item {
             }
 
             Text {
+                textFormat: Text.PlainText
                 anchors.left: parent.left
                 anchors.right: chevron.left
                 anchors.verticalCenter: parent.verticalCenter
@@ -142,6 +144,7 @@ Item {
             Text {
                 id: chevron
 
+                textFormat: Text.PlainText
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.rightMargin: trigger.borderRight + Style.spacing.controlGap
@@ -261,6 +264,7 @@ Item {
                         Text {
                             id: mark
 
+                            textFormat: Text.PlainText
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.leftMargin: Style.spacing.controlPaddingX
@@ -271,6 +275,7 @@ Item {
                         }
 
                         Text {
+                            textFormat: Text.PlainText
                             anchors.left: mark.left
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
